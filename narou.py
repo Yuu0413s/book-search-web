@@ -60,9 +60,10 @@ def fetch_top_novels():
 def to_novel(raw):
     """API の 1 件を、novels テーブルの 1 行（カラム名 → 値）の形にする。"""
     ncode = raw["ncode"]
-    # ncode は重複チェックと UNIQUE 制約のキーになるので、型が違えばここで弾く
+    # ncode は重複チェックと UNIQUE 制約のキーになるので、
+    # 文字列でないものや空文字はここで弾く
     if not isinstance(ncode, str) or not ncode:
-        raise ValueError(f"ncode が空でない文字列ではありません: {ncode!r}")
+        raise ValueError(f"ncode が文字列でないか、空です: {ncode!r}")
 
     return {
         "ncode": ncode,

@@ -50,6 +50,8 @@ def test_DBに接続できなければエラーを表示してDBは変えない(
 
     assert result.exit_code == 1
     assert "DB への接続または保存に失敗しました" in result.output
-    # 接続先やユーザー名などの詳細は表示しない
+    # テスト用 DB の接続先（localhost:5433）・ユーザー名（narou）が表示されない
+    assert "localhost" not in result.output
+    assert "5433" not in result.output
     assert "narou" not in result.output
     assert set(fetch_novels_by_ncode(db_conn)) == {"N0099ZZ"}
