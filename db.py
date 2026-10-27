@@ -109,6 +109,8 @@ def search_novels(conn, *, words, writer, genre, sort, limit, offset):
     where = " AND ".join(conditions) if conditions else "TRUE"
 
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # count と一覧は別の SQL なので、間に取り込みが確定すると件数と一覧が
+        # わずかにずれることがある。取り込みはまれで、再読み込みすれば直るので許容する
         cur.execute(f"SELECT count(*) AS total FROM novels WHERE {where};", params)
         total = cur.fetchone()["total"]
 

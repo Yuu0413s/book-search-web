@@ -1,15 +1,20 @@
+import math
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import click
 import psycopg2
 from flask import Flask, g, render_template, request, url_for
+from werkzeug.exceptions import InternalServerError
 
 import db
 import genres
 import narou
 
 PER_PAGE = 20
+# 1 語ごとに SQL の条件が増えるので、語を大量に並べた URL で
+# DB を重くされないよう上限を設ける
+MAX_KEYWORDS = 10
 STORY_EXCERPT_LENGTH = 200
 
 # 並び順の表示名。キーは db.SORT_ORDERS と揃える
@@ -30,10 +35,11 @@ app.config["SESSION_COOKIE_NAME"] = "narou_search_session"
 
 
 def get_db():
-    """このリクエスト用の DB 接続を返す。無ければ作る。
+    """いまの処理（リクエスト 1 回、または CLI コマンド 1 回）用の DB 接続を返す。
+    無ければ作る。
 
     起動時に 1 回だけ接続すると、途中で切れたときに再起動するまで全ページが
-    エラーになるので、リクエストごとに作って close_db で閉じる。
+    エラーになるので、処理ごとに作り、終わったら close_db で閉じる。
     """
     if "db" not in g:
         g.db = psycopg2.connect(app.config["DB_DSN"])
@@ -45,6 +51,15 @@ def close_db(exception):
     conn = g.pop("db", None)
     if conn is not None:
         conn.close()
+
+
+@app.errorhandler(psycopg2.Error)
+def handle_db_error(e):
+    # Flask の既定ではトレースバックと例外の文言がエラーログに出るが、文言には
+    # 接続先や接続文字列の一部が含まれることがあり、ログはほかの学生も読めるので、
+    # 種類名だけを記録する
+    app.logger.error("DB の処理に失敗しました（%s）", type(e).__name__)
+    return InternalServerError()
 
 
 @app.template_filter("novel_url")
@@ -80,12 +95,17 @@ def parse_search_args(args):
         page = 1
 
     return {
-        "q": args.get("q", "").strip(),
-        "writer": args.get("writer", "").strip(),
+        # NUL 文字は psycopg2 が SQL に渡せずエラーになるので取り除く
+        "q": _remove_nul(args.get("q", "")).strip(),
+        "writer": _remove_nul(args.get("writer", "")).strip(),
         "genre": genre,
         "sort": sort,
         "page": page,
     }
+
+
+def _remove_nul(text):
+    return text.replace("\x00", "")
 
 
 def _to_int(text):
@@ -98,17 +118,20 @@ def _to_int(text):
 @app.route("/")
 def index():
     search = parse_search_args(request.args)
+    # str.split() は全角スペースも区切りとして扱う。同じ語は 1 つにまとめてから数える
+    words = list(dict.fromkeys(search["q"].split()))[:MAX_KEYWORDS]
+    offset = (search["page"] - 1) * PER_PAGE
     novels, total = db.search_novels(
         get_db(),
-        # str.split() は全角スペースも区切りとして扱う
-        words=search["q"].split(),
+        words=words,
         writer=search["writer"] or None,
         genre=search["genre"],
         sort=search["sort"],
         limit=PER_PAGE,
-        offset=(search["page"] - 1) * PER_PAGE,
+        offset=offset,
     )
-    last_page = max(1, -(-total // PER_PAGE))  # 切り上げの割り算
+    # 0 件でもページ送りの計算が崩れないよう、最低 1 ページとして扱う
+    last_page = max(1, math.ceil(total / PER_PAGE))
 
     def page_url(page):
         # 空の条件と初期値の並び順は URL に入れない（短く、共有しやすくするため）
@@ -126,7 +149,7 @@ def index():
         search=search,
         novels=novels,
         total=total,
-        first_number=(search["page"] - 1) * PER_PAGE + 1,
+        first_number=offset + 1,
         last_page=last_page,
         page_url=page_url,
         genre_groups=genres.GENRE_GROUPS,

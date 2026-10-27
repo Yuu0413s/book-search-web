@@ -5,22 +5,9 @@ from urllib.parse import quote
 
 import pytest
 
+import db
 import myapp
-from tests.helpers import insert_novel
-
-NOW = datetime(2026, 10, 27, 12, 0, 0)
-
-
-def add_novel(conn, ncode, **overrides):
-    """画面のテスト用に作品を入れる。指定しない項目は、どの検索語にも当たらない値にする。"""
-    values = {
-        "title": f"作品{ncode}",
-        "writer": "作者",
-        "story": "あらすじ",
-        "keyword": None,
-        **overrides,
-    }
-    insert_novel(conn, ncode, fetched_at=NOW, **values)
+from tests.helpers import add_novel
 
 
 def get_html(client, query="", **kwargs):
@@ -66,9 +53,11 @@ def test_タイトルのリンク先は小文字のncodeのURLで_別タブで�
 
     page = get_html(client)
 
-    assert 'href="https://ncode.syosetu.com/n2710db/"' in page
-    assert 'target="_blank"' in page
-    assert 'rel="noopener noreferrer"' in page
+    # フッターのリンクにも target・rel があるので、作品リンクのタグ全体で確かめる
+    assert (
+        '<a href="https://ncode.syosetu.com/n2710db/" target="_blank" '
+        'rel="noopener noreferrer">' in page
+    )
 
 
 def test_あらすじは200文字を超えたら先頭200文字と三点リーダーにする(client, db_conn):
@@ -153,6 +142,8 @@ def test_フォームに今の検索条件が入っている(client, db_conn):
         "genre=abc",
         "genre=12345",
         "q=&writer=&genre=",
+        "q=%00",
+        "writer=%00",
     ],
 )
 def test_おかしなパラメータでも初期値で表示する(client, db_conn, query):
@@ -163,6 +154,24 @@ def test_おかしなパラメータでも初期値で表示する(client, db_co
 
     # 全ジャンル・総合ポイント順・1 ページ目
     assert page.index("ポイント高") < page.index("ポイント低")
+
+
+def test_キーワードは先頭10語まで使い_11語目以降は無視する(client, db_conn):
+    add_novel(db_conn, "N0001AA", title="あいうえおかきくけこ")
+
+    # 11 語目の「ん」はタイトルに無いが、無視されるので作品は出る
+    page = get_html(client, f"q={quote('あ い う え お か き く け こ ん')}")
+
+    assert "あいうえおかきくけこ" in page
+
+
+def test_同じキーワードは1語として数える(client, db_conn):
+    add_novel(db_conn, "N0001AA", title="あいうえお")
+
+    # 「あ」10 個は 1 語にまとまるので、2 語目の「ん」で絞り込まれて 0 件になる
+    page = get_html(client, f"q={quote('あ ' * 10 + 'ん')}")
+
+    assert "条件に合う作品がありません" in page
 
 
 def test_条件に合う作品が無ければそう表示する(client, db_conn):
@@ -232,3 +241,21 @@ def test_get_dbは同じリクエストの中では同じ接続を返し_終わ�
         assert not first.closed
 
     assert first.closed
+
+
+def test_並び順の表示名はDBの並び順と同じキーを持つ():
+    assert myapp.SORT_LABELS.keys() == db.SORT_ORDERS.keys()
+
+
+def test_DBのエラーは種類名だけをログに出して500を返す(
+    app, client, monkeypatch, caplog
+):
+    # 書式の誤った接続文字列。psycopg2 の例外の文言には「RETPW」が含まれる
+    monkeypatch.setitem(app.config, "DB_DSN", "host=localhost password=SEC RETPW")
+
+    response = client.get("/")
+
+    assert response.status_code == 500
+    assert "ProgrammingError" in caplog.text
+    assert "RETPW" not in caplog.text
+    assert "RETPW" not in response.get_data(as_text=True)

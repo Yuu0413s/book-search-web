@@ -4,7 +4,7 @@ import psycopg2
 import pytest
 
 import db
-from tests.helpers import fetch_novels_by_ncode, insert_novel, make_novel
+from tests.helpers import add_novel, fetch_novels_by_ncode, insert_novel, make_novel
 
 NOW = datetime(2026, 10, 27, 12, 0, 0)
 
@@ -89,18 +89,6 @@ def test_途中で失敗したら保存も削除も取り消される(db_conn):
 
 
 # --- 検索（search_novels） ---
-
-
-def add_novel(conn, ncode, **overrides):
-    """検索のテスト用に作品を入れる。指定しない項目は、どの検索語にも当たらない値にする。"""
-    values = {
-        "title": f"作品{ncode}",
-        "writer": "作者",
-        "story": "あらすじ",
-        "keyword": None,
-        **overrides,
-    }
-    insert_novel(conn, ncode, fetched_at=NOW, **values)
 
 
 def search(conn, **conditions):

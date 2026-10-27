@@ -64,6 +64,19 @@ def insert_novel(conn, ncode, fetched_at, **overrides):
         )
 
 
+def add_novel(conn, ncode, **overrides):
+    """検索・画面のテスト用に作品を入れる。指定しない項目は、どの検索語にも当たらない値にする。"""
+    values = {
+        "title": f"作品{ncode}",
+        "writer": "作者",
+        "story": "あらすじ",
+        "keyword": None,
+        **overrides,
+    }
+    # 検索は取得日時を見ないので、固定の値でよい
+    insert_novel(conn, ncode, fetched_at=datetime(2026, 10, 27, 12, 0, 0), **values)
+
+
 def fetch_novels_by_ncode(conn):
     """novels の全行を {ncode: 行の dict} の形で返す。"""
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
