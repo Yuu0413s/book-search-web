@@ -1,0 +1,7 @@
+# 授業サーバ（muds.gdl.jp）にインストール済みのバージョンに合わせて固定する
+Flask==3.1.3
+Werkzeug==3.1.8
+Jinja2==3.1.6
+psycopg2==2.9.12
+requests==2.32.4
+urllib3==1.26.19

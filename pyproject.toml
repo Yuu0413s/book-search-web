@@ -1,0 +1,13 @@
+# パッケージ管理には使わない（依存関係は requirements*.txt）。ツールの設定だけを書く。
+
+[tool.ruff]
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/F: 基本的なエラー, I: import の並び順, B: バグになりやすい書き方, UP: 古い書き方
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/ から一番上の myapp.py などを import できるようにする
+pythonpath = ["."]

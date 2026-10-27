@@ -1,0 +1,18 @@
+# ローカル開発・テスト用の PostgreSQL（サーバと同じ 18 系）。
+# ほかの PostgreSQL（Homebrew の 16）と重ならないよう、ポートは 5433。
+# ここのパスワードはこのコンテナの中だけで使う値なので、秘密情報ではない。
+services:
+  db:
+    image: postgres:18
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: narou
+      POSTGRES_PASSWORD: narou
+      POSTGRES_DB: narou_search_dev
+    volumes:
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+      - pgdata:/var/lib/postgresql
+
+volumes:
+  pgdata:
