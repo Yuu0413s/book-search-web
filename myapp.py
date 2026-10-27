@@ -59,8 +59,11 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # ログインはブラウザを閉じるまで有効にする。session.permanent を True にしない限り、
 # Flask は有効期限の無い Cookie を返すので、ブラウザを閉じると消える。
 # ただし Cookie の値そのものはログアウトしても無効にならず、署名の確認にはこの期限
-# （既定 31 日）が使われるので、盗まれたときに使える期間を短くする。最後に session が
-# 書き換わってから（ログイン・取り込みなど）この時間がたつと、ログインし直しになる
+# （既定 31 日）が使われるので短くする。期限は最後に session が書き換わってから
+# （ログイン・取り込みなど）数えるので、取り込みのたびに延びる。盗んだ人が何もしな
+# ければ 8 時間で切れるが、取り込みを繰り返せば延ばせるので、上限ではない（リスク 13）。
+# 切れたあとに開き直せばログイン画面へ移るが、開いたままの画面でボタンを押すと、
+# CSRF トークンも消えているので 400 になる
 app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 
 app.add_template_global(auth.get_csrf_token, "csrf_token")

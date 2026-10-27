@@ -266,7 +266,8 @@ def test_取り込みに成功すると管理画面へ移り_結果を1回だけ
     assert response.status_code == 302
     assert response.headers["Location"] == "/admin"
     assert set(fetch_novels_by_ncode(db_conn)) == {"N0001AA", "N0002BB"}
-    message = "追加 2 件・更新 0 件・削除 0 件"
+    # 文言が二重になったときも落ちるよう、前後のタグの区切りまで含めて確かめる
+    message = ">取り込みました（追加 2 件・更新 0 件・削除 0 件）<"
     assert message in admin_client.get("/admin").get_data(as_text=True)
     assert message not in admin_client.get("/admin").get_data(as_text=True)
 
