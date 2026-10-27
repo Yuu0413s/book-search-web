@@ -59,6 +59,8 @@ def handle_db_error(e):
     # 接続先や接続文字列の一部が含まれることがあり、ログはほかの学生も読めるので、
     # 種類名だけを記録する
     app.logger.error("DB の処理に失敗しました（%s）", type(e).__name__)
+    # abort(500) で例外を投げ直すと、Flask が元の例外ごとトレースバックをログに
+    # 出してしまうので、例外を投げずに 500 の応答を返す
     return InternalServerError()
 
 
@@ -118,7 +120,8 @@ def _to_int(text):
 @app.route("/")
 def index():
     search = parse_search_args(request.args)
-    # str.split() は全角スペースも区切りとして扱う。同じ語は 1 つにまとめてから数える
+    # str.split() は全角スペースも区切りとして扱う。同じ語は（順番を保ったまま）
+    # 1 つにまとめてから数える
     words = list(dict.fromkeys(search["q"].split()))[:MAX_KEYWORDS]
     offset = (search["page"] - 1) * PER_PAGE
     novels, total = db.search_novels(
