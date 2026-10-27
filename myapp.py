@@ -1,6 +1,6 @@
 import math
 import secrets
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import click
@@ -57,7 +57,11 @@ app.config["SESSION_COOKIE_NAME"] = "narou_search_session"
 # Flask の既定（None）は属性を付けず、ブラウザ任せになるので明示する
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 # ログインはブラウザを閉じるまで有効にする。session.permanent を True にしない限り、
-# Flask は有効期限の無い Cookie を返すので、ブラウザを閉じると消える
+# Flask は有効期限の無い Cookie を返すので、ブラウザを閉じると消える。
+# ただし Cookie の値そのものはログアウトしても無効にならず、署名の確認にはこの期限
+# （既定 31 日）が使われるので、盗まれたときに使える期間を短くする。最後に session が
+# 書き換わってから（ログイン・取り込みなど）この時間がたつと、ログインし直しになる
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 
 app.add_template_global(auth.get_csrf_token, "csrf_token")
 
@@ -108,8 +112,9 @@ def handle_db_error(e):
 
 @app.errorhandler(narou.NarouApiError)
 def handle_narou_error(e):
-    # 文言は narou.py で書いたもの（API の URL や応答の形の説明）で、秘密の値は
-    # 入らないので、原因が分かるようそのまま記録する
+    # 文言には、narou.py で書いた説明に加えて、requests の例外の文言（なろう API の
+    # URL を含む）や API の応答の値が入る。どれも公開されている値で秘密は入らないので、
+    # 原因が分かるようそのまま記録する
     app.logger.error("取り込みに失敗しました（%s）", e)
     return InternalServerError()
 
@@ -269,7 +274,7 @@ def admin_import():
     result = run_import()
     # 結果を画面に直接返すと、再読み込みで取り込みがもう一度走るので、
     # flash で次の画面に渡して管理画面へ移す（PRG）
-    flash(format_import_result(result))
+    flash(f"取り込みました（{format_import_result(result)}）")
     return redirect(url_for("admin_home"))
 
 

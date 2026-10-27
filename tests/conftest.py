@@ -40,6 +40,9 @@ def app(test_db):
         DB_DSN=test_db,
         SECRET_KEY="test-secret-key",
         SESSION_COOKIE_SECURE=False,
+        # テストクライアントは Cookie の Path を守るので、"/s2422016/" だと
+        # /admin/... に session が届かない
+        SESSION_COOKIE_PATH="/",
     )
     return flask_app
 

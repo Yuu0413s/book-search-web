@@ -12,7 +12,7 @@
 </div>
 
 {% for message in get_flashed_messages() %}
-<p class="flash" role="status">取り込みました（{{ message }}）</p>
+<p class="flash" role="status">{{ message }}</p>
 {% endfor %}
 
 <section class="card">

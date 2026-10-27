@@ -15,4 +15,7 @@ DB_DSN = ""
 SESSION_COOKIE_PATH = "/"
 
 # https のときだけ Cookie を送る。サーバでは True、ローカル（http）では False
+# True にすると、http で来たアクセスをサイト全体で https へ切り替える
+# （Secure 付きの Cookie は http では送られず、ログインできないため。
+# myapp.redirect_to_https）
 SESSION_COOKIE_SECURE = False
