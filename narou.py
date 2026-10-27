@@ -40,7 +40,13 @@ def fetch_top_novels():
     if not isinstance(data, list):
         raise NarouApiError("なろう API の応答が想定した形式（配列）ではありません")
 
-    # 先頭の要素は {"allcount": 全件数} なので、2 番目以降が作品
+    # 先頭の要素は {"allcount": 全件数} で、2 番目以降が作品。先頭が欠けていると
+    # 1 件目の作品を捨ててしまうので確かめる（allcount は条件に合う作品の総数なので、
+    # 返ってくる件数とは一致しない。一致するかは確かめない）
+    head = data[0] if data else None
+    if not isinstance(head, dict) or not _is_int(head.get("allcount")):
+        raise NarouApiError("なろう API の応答の先頭に件数（allcount）がありません")
+
     raw_novels = data[1:]
     if not raw_novels:
         raise NarouApiError("なろう API から作品が 1 件も返ってきませんでした")
@@ -65,16 +71,37 @@ def to_novel(raw):
     if not isinstance(ncode, str) or not ncode:
         raise ValueError(f"ncode が文字列でないか、空です: {ncode!r}")
 
+    # 型の確かめを DB に任せると、API の異常が DB のエラーとして表示されたり、
+    # "123" や 1.5 が黙って変換・丸められて保存されたりするので、ここで確かめる
     return {
         "ncode": ncode,
-        "title": raw["title"],
-        "writer": raw["writer"],
-        "story": raw["story"],
-        "biggenre": raw["biggenre"],
-        "genre": raw["genre"],
+        "title": _require_str(raw, "title"),
+        "writer": _require_str(raw, "writer"),
+        "story": _require_str(raw, "story"),
+        "biggenre": _require_int(raw, "biggenre"),
+        "genre": _require_int(raw, "genre"),
         # タグが無い作品は空文字で返ってくるので、「値なし」として NULL にする
-        "keyword": raw["keyword"] or None,
-        "global_point": raw["global_point"],
-        "fav_novel_cnt": raw["fav_novel_cnt"],
+        "keyword": _require_str(raw, "keyword") or None,
+        "global_point": _require_int(raw, "global_point"),
+        "fav_novel_cnt": _require_int(raw, "fav_novel_cnt"),
         "general_lastup": datetime.strptime(raw["general_lastup"], LASTUP_FORMAT),
     }
+
+
+def _is_int(value):
+    # bool は int の子クラスなので、True / False を整数として通さないよう除く
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _require_str(raw, key):
+    value = raw[key]
+    if not isinstance(value, str):
+        raise ValueError(f"{key} が文字列ではありません: {value!r}")
+    return value
+
+
+def _require_int(raw, key):
+    value = raw[key]
+    if not _is_int(value):
+        raise ValueError(f"{key} が整数ではありません: {value!r}")
+    return value

@@ -148,6 +148,47 @@ def test_応答が配列でないならNarouApiError(monkeypatch):
         narou.fetch_top_novels()
 
 
+@pytest.mark.parametrize(
+    "head",
+    [
+        # 先頭の件数が無く、いきなり作品が来た
+        # （修正前は、この 1 件目の作品を黙って捨てていた）
+        make_raw_novel("N0000AA"),
+        {"allcount": "2"},
+        {"allcount": True},
+        {},
+    ],
+)
+def test_応答の先頭に整数のallcountが無ければNarouApiError(monkeypatch, head):
+    response = FakeResponse([head, make_raw_novel("N0001AA")])
+    monkeypatch.setattr(narou.requests, "get", fake_get_returning(response))
+
+    with pytest.raises(narou.NarouApiError):
+        narou.fetch_top_novels()
+
+
+@pytest.mark.parametrize("field", ["title", "writer", "story", "keyword"])
+@pytest.mark.parametrize("value", [None, 123])
+def test_文字列の項目が文字列でなければNarouApiError(monkeypatch, field, value):
+    response = FakeResponse([{"allcount": 1}, make_raw_novel(**{field: value})])
+    monkeypatch.setattr(narou.requests, "get", fake_get_returning(response))
+
+    with pytest.raises(narou.NarouApiError):
+        narou.fetch_top_novels()
+
+
+@pytest.mark.parametrize(
+    "field", ["biggenre", "genre", "global_point", "fav_novel_cnt"]
+)
+@pytest.mark.parametrize("value", [None, "100", True, 1.5])
+def test_整数の項目が整数でなければNarouApiError(monkeypatch, field, value):
+    response = FakeResponse([{"allcount": 1}, make_raw_novel(**{field: value})])
+    monkeypatch.setattr(narou.requests, "get", fake_get_returning(response))
+
+    with pytest.raises(narou.NarouApiError):
+        narou.fetch_top_novels()
+
+
 def test_必要な項目が欠けていたらNarouApiError(monkeypatch):
     raw = make_raw_novel()
     del raw["title"]
