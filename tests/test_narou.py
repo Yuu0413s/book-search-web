@@ -158,6 +158,15 @@ def test_必要な項目が欠けていたらNarouApiError(monkeypatch):
         narou.fetch_top_novels()
 
 
+@pytest.mark.parametrize("ncode", [["N0001AA"], None, 123, ""])
+def test_ncodeが空でない文字列でなければNarouApiError(monkeypatch, ncode):
+    response = FakeResponse([{"allcount": 1}, make_raw_novel(ncode=ncode)])
+    monkeypatch.setattr(narou.requests, "get", fake_get_returning(response))
+
+    with pytest.raises(narou.NarouApiError):
+        narou.fetch_top_novels()
+
+
 def test_日時の形式が違っていたらNarouApiError(monkeypatch):
     response = FakeResponse(
         [{"allcount": 1}, make_raw_novel(general_lastup="2026/03/22")]

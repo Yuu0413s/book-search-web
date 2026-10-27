@@ -16,7 +16,9 @@
 ```
 mid_assign/                  → サーバの ~/myapp/
 ├── flask.wsgi               # mod_wsgi の入口
-├── myapp.py                 # Flask 本体（ルート）
+├── myapp.py                 # Flask 本体（ルートと CLI コマンド。DB 接続もここで作る）
+├── narou.py                 # なろう API からの取得と変換
+├── db.py                    # SQL（接続は呼ぶ側から受け取る）
 ├── schema.sql               # テーブル定義
 ├── config.example.py        # instance/config.py の見本
 ├── instance/config.py       # 秘密情報。Git・sftp とも除外（サーバ上で直接作る）
@@ -37,6 +39,7 @@ mid_assign/                  → サーバの ~/myapp/
 | `.venv/bin/ruff format .` | 整形 |
 | `uv pip install -r requirements-dev.txt` | 依存関係のインストール |
 | `./deploy.sh` | サーバにデプロイ |
+| `.venv/bin/flask --app myapp import-novels` | なろう API から取り込む（サーバでは `cd ~/myapp && python3 -m flask --app myapp import-novels`） |
 
 ## デプロイ
 - `./deploy.sh` で `~/myapp/` に rsync し、`flask.wsgi` を touch して再読み込みする

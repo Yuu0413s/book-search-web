@@ -1,7 +1,12 @@
 from datetime import datetime, timedelta
 
 import narou
-from tests.helpers import fetch_novels_by_ncode, insert_novel, make_novel
+from tests.helpers import (
+    TEST_DB_DSN,
+    fetch_novels_by_ncode,
+    insert_novel,
+    make_novel,
+)
 
 
 def test_取り込みに成功すると件数を表示してDBに保存する(app, db_conn, monkeypatch):
@@ -20,27 +25,31 @@ def test_APIの取得に失敗したらエラーを表示してDBは変えない
     insert_novel(db_conn, "N0099ZZ", fetched_at=datetime.now() - timedelta(days=30))
 
     def failing_fetch():
-        raise narou.NarouApiError("なろう API への接続に失敗しました")
+        raise narou.NarouApiError("テスト用の取得失敗")
 
     monkeypatch.setattr(narou, "fetch_top_novels", failing_fetch)
 
     result = app.test_cli_runner().invoke(args=["import-novels"])
 
     assert result.exit_code == 1
-    assert "なろう API への接続に失敗しました" in result.output
+    # 例外に渡したメッセージが、そのまま表示されることを確かめる
+    assert "テスト用の取得失敗" in result.output
     assert set(fetch_novels_by_ncode(db_conn)) == {"N0099ZZ"}
 
 
-def test_DBに接続できなければエラーを表示する(app, db_conn, monkeypatch):
+def test_DBに接続できなければエラーを表示してDBは変えない(app, db_conn, monkeypatch):
+    # 30 日前の作品は、取り込みが成功していれば削除されるはずのもの
+    insert_novel(db_conn, "N0099ZZ", fetched_at=datetime.now() - timedelta(days=30))
     monkeypatch.setattr(narou, "fetch_top_novels", lambda: [make_novel("N0001AA")])
-    monkeypatch.setitem(
-        app.config,
-        "DB_DSN",
-        "host=localhost port=5433 dbname=narou_search_test user=narou password=wrong",
-    )
+    # パスワードだけを壊す（ほかの部分はテスト用 DB と同じ）
+    wrong_dsn = TEST_DB_DSN.replace("password=narou", "password=wrong")
+    assert wrong_dsn != TEST_DB_DSN
+    monkeypatch.setitem(app.config, "DB_DSN", wrong_dsn)
 
     result = app.test_cli_runner().invoke(args=["import-novels"])
 
     assert result.exit_code == 1
-    assert "DB" in result.output
-    assert fetch_novels_by_ncode(db_conn) == {}
+    assert "DB への接続または保存に失敗しました" in result.output
+    # 接続先やユーザー名などの詳細は表示しない
+    assert "narou" not in result.output
+    assert set(fetch_novels_by_ncode(db_conn)) == {"N0099ZZ"}

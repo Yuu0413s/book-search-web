@@ -191,8 +191,8 @@ Flask が HTML を返す構成（week02・03 と同じ）。JSON の API は作�
 ```
 mid_assign/                  → サーバの ~/myapp/
 ├── flask.wsgi               # mod_wsgi の入口（/home/s2422016/myapp/flask.wsgi で申請済み）
-├── myapp.py                 # Flask 本体。ルートだけを書く
-├── db.py                    # DB 接続と SQL（検索・取り込み・管理者の取得）
+├── myapp.py                 # Flask 本体。ルートと CLI コマンド。DB 接続もここで作る
+├── db.py                    # SQL（検索・取り込み・管理者の取得）。接続は呼ぶ側から受け取る
 ├── narou.py                 # なろう API からの取得と、DB に入れる形への変換
 ├── auth.py                  # ログイン必須チェック・CSRF トークン
 ├── genres.py                # ジャンルのコード → 名前の辞書
@@ -210,8 +210,10 @@ mid_assign/                  → サーバの ~/myapp/
 │   └── css/style.css
 ├── tests/                   # ☆サーバに送らない
 │   ├── conftest.py
+│   ├── helpers.py           # テストデータの組み立て・テスト用 DB の接続文字列
 │   ├── test_narou.py
 │   ├── test_db.py
+│   ├── test_cli.py
 │   └── test_routes.py
 ├── docs/design/             # ☆サーバに送らない
 ├── requirements.txt         # サーバと同じバージョン（Flask 3.1.3 / psycopg2 2.9.12 / requests 2.32.4）

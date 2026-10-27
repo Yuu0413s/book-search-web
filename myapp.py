@@ -30,7 +30,9 @@ def import_novels_command():
     except narou.NarouApiError as e:
         raise click.ClickException(str(e)) from e
 
-    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する
+    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
+    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
+    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
     now = datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
     try:
         conn = psycopg2.connect(app.config["DB_DSN"])
@@ -39,7 +41,11 @@ def import_novels_command():
         finally:
             conn.close()
     except psycopg2.Error as e:
-        raise click.ClickException(f"DB への接続または保存に失敗しました: {e}") from e
+        # 例外の詳細（str(e)）には接続先や接続文字列の一部が含まれることがあるので、
+        # 種類名だけを出す
+        raise click.ClickException(
+            f"DB への接続または保存に失敗しました（{type(e).__name__}）"
+        ) from e
 
     click.echo(
         f"追加 {result['added']} 件・更新 {result['updated']} 件・"

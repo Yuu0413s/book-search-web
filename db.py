@@ -30,6 +30,8 @@ def save_novels(conn, novels, now):
 
     すべて 1 つのトランザクションで行い、途中で失敗したら全部取り消す。
     novels の ncode は重複していない前提（narou.fetch_top_novels が保証する）。
+    重複していると、追加件数が実際に増えた行数より多く数えられる。
+    now は取り込み時刻で、タイムゾーン無しの JST（カラムが TIMESTAMP のため）。
     戻り値は {"added": 追加件数, "updated": 更新件数, "deleted": 削除件数}。
     """
     with conn, conn.cursor() as cur:
@@ -44,8 +46,8 @@ def save_novels(conn, novels, now):
         )
         existing_ncodes = {row[0] for row in cur.fetchall()}
 
-        # 1 件ずつ実行する。複数行をまとめた INSERT だと、同じ ncode が
-        # 2 回含まれたときに PostgreSQL がエラーにするため（100 件なので速度は問題ない）
+        # 100 件程度なので、まとめて INSERT する書き方（execute_values など）は
+        # 使わず、読みやすさを優先して 1 件ずつ実行する
         for novel in novels:
             cur.execute(UPSERT_NOVEL_SQL, {**novel, "fetched_at": now})
 

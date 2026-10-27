@@ -4,11 +4,8 @@ import psycopg2
 import pytest
 
 from myapp import app as flask_app
+from tests.helpers import TEST_DB_DSN
 
-# compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
-TEST_DB_DSN = (
-    "host=localhost port=5433 dbname=narou_search_test user=narou password=narou"
-)
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
 

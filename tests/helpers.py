@@ -4,6 +4,11 @@ from datetime import datetime
 
 import psycopg2.extras
 
+# compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
+TEST_DB_DSN = (
+    "host=localhost port=5433 dbname=narou_search_test user=narou password=narou"
+)
+
 
 def make_raw_novel(ncode="N0001AA", **overrides):
     """なろう API が返す 1 件分（of=n-t-w-s-bg-g-k-gp-f-gl を指定したときの形）。"""
