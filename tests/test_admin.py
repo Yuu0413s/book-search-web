@@ -270,6 +270,7 @@ def test_取り込みに成功すると管理画面へ移り_結果を1回だけ
     # タグの区切りまで含めて、ちょうど 1 回出ていることを確かめる
     message = ">取り込みました（追加 2 件・更新 0 件・削除 0 件）<"
     assert admin_client.get("/admin").get_data(as_text=True).count(message) == 1
+    # 開き直すとメッセージは消えていて、2 回目の表示では出ないことを確かめる
     assert message not in admin_client.get("/admin").get_data(as_text=True)
 
 
