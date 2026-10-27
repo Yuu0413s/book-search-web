@@ -36,10 +36,14 @@ mid_assign/                  → サーバの ~/myapp/
 | `.venv/bin/ruff check .` | Lint |
 | `.venv/bin/ruff format .` | 整形 |
 | `uv pip install -r requirements-dev.txt` | 依存関係のインストール |
+| `./deploy.sh` | サーバにデプロイ |
 
 ## デプロイ
-- `.vscode/sftp.json` の `muds-myapp` 設定で、保存時に `~/myapp/` へ自動アップロードされる
-- `instance/config.py` はアップロードしない。サーバの `~/myapp/instance/config.py` は直接編集する
+- `./deploy.sh` で `~/myapp/` に rsync し、`flask.wsgi` を touch して再読み込みする
+- mod_wsgi（デーモンモード）は **`flask.wsgi` の更新日時が変わったときだけ** コードと設定を読み直す。`.py` やテンプレートを上げただけでは反映されない
+- VSCode で保存したときも `.vscode/sftp.json` の `muds-myapp` 設定で自動アップロードされるが、touch はされない
+- `instance/config.py` はアップロードしない。サーバの `~/myapp/instance/config.py`（権限 600）は直接編集する
+- エラーログ：`/var/log/httpd/s2422016-error_log`（ほかの学生も読めるので、秘密の値をログに出さない）
 
 ## このプロジェクト固有のルール
 - Git はローカルのみ。Issue・PR は使わず、main に直接コミットする
