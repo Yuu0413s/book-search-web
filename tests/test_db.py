@@ -4,7 +4,13 @@ import psycopg2
 import pytest
 
 import db
-from tests.helpers import add_novel, fetch_novels_by_ncode, insert_novel, make_novel
+from tests.helpers import (
+    add_novel,
+    fetch_admins_by_username,
+    fetch_novels_by_ncode,
+    insert_novel,
+    make_novel,
+)
 
 NOW = datetime(2026, 10, 27, 12, 0, 0)
 
@@ -257,3 +263,61 @@ def test_検索_記号は普通の文字として検索される(db_conn, word, 
 def test_検索_並び順に未知の値を渡すとValueError(db_conn):
     with pytest.raises(ValueError):
         search(db_conn, sort="title; DROP TABLE novels")
+
+
+# --- 管理者 ---
+
+
+def test_管理者_ユーザー名とパスワードのハッシュを保存する(db_conn):
+    db.create_admin(db_conn, "admin", "hashed-value")
+
+    admins = fetch_admins_by_username(db_conn)
+    assert set(admins) == {"admin"}
+    assert admins["admin"]["password_hash"] == "hashed-value"
+
+
+def test_管理者_同じユーザー名ならUniqueViolationになり既存の行は変わらない(db_conn):
+    db.create_admin(db_conn, "admin", "old-hash")
+
+    with pytest.raises(psycopg2.errors.UniqueViolation):
+        db.create_admin(db_conn, "admin", "new-hash")
+
+    assert fetch_admins_by_username(db_conn)["admin"]["password_hash"] == "old-hash"
+
+
+def test_管理者_ユーザー名で1件取得できる(db_conn):
+    db.create_admin(db_conn, "admin", "hashed-value")
+    db.create_admin(db_conn, "other", "other-hash")
+
+    admin = db.find_admin_by_username(db_conn, "admin")
+
+    assert admin["username"] == "admin"
+    assert admin["password_hash"] == "hashed-value"
+    assert admin["id"] == fetch_admins_by_username(db_conn)["admin"]["id"]
+
+
+def test_管理者_いないユーザー名ならNoneを返す(db_conn):
+    db.create_admin(db_conn, "admin", "hashed-value")
+
+    assert db.find_admin_by_username(db_conn, "nobody") is None
+
+
+# --- 取り込みの状況 ---
+
+
+def test_取り込み状況_作品が無ければ件数0で日時はNone(db_conn):
+    assert db.get_import_status(db_conn) == {
+        "novel_count": 0,
+        "last_fetched_at": None,
+    }
+
+
+def test_取り込み状況_作品の件数と最も新しい取得日時を返す(db_conn):
+    insert_novel(db_conn, "N0001AA", fetched_at=NOW - timedelta(days=3))
+    insert_novel(db_conn, "N0002BB", fetched_at=NOW)
+    insert_novel(db_conn, "N0003CC", fetched_at=NOW - timedelta(days=1))
+
+    assert db.get_import_status(db_conn) == {
+        "novel_count": 3,
+        "last_fetched_at": NOW,
+    }

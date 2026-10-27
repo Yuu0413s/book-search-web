@@ -1,0 +1,37 @@
+{% extends "layout.html" %}
+
+{% block title %}管理画面 | なろう小説検索{% endblock %}
+
+{% block content %}
+<div class="admin-header">
+  <h1 class="admin-heading">管理画面</h1>
+  <form action="{{ url_for('admin_logout') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button-ghost" type="submit">ログアウト</button>
+  </form>
+</div>
+
+{% for message in get_flashed_messages() %}
+<p class="flash" role="status">取り込みました（{{ message }}）</p>
+{% endfor %}
+
+<section class="card">
+  <h2 class="admin-subheading">取り込みの状況</h2>
+
+  {% if status.novel_count == 0 %}
+  <p>まだ取り込んでいません。</p>
+  {% else %}
+  <dl class="status-list">
+    <dt>作品数</dt>
+    <dd>{{ status.novel_count }} 件</dd>
+    <dt>最終取り込み</dt>
+    <dd>{{ status.last_fetched_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+  </dl>
+  {% endif %}
+
+  <form class="actions" action="{{ url_for('admin_import') }}" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button" type="submit">なろう API から取り込む</button>
+  </form>
+</section>
+{% endblock %}

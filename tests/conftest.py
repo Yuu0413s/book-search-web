@@ -33,7 +33,14 @@ def db_conn(test_db):
 
 @pytest.fixture
 def app(test_db):
-    flask_app.config.update(TESTING=True, DB_DSN=test_db)
+    # ローカルの instance/config.py の値に左右されないよう、テストに必要な設定は
+    # ここで決める（https への切り替えを確かめるテストは個別に True にする）
+    flask_app.config.update(
+        TESTING=True,
+        DB_DSN=test_db,
+        SECRET_KEY="test-secret-key",
+        SESSION_COOKIE_SECURE=False,
+    )
     return flask_app
 
 

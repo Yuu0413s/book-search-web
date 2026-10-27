@@ -139,3 +139,39 @@ def _contains_pattern(text):
     """
     escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
+
+
+def create_admin(conn, username, password_hash):
+    """管理者を追加する。
+
+    同じユーザー名がいれば psycopg2.errors.UniqueViolation を投げる。
+    """
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO admins (username, password_hash) VALUES (%s, %s);",
+            (username, password_hash),
+        )
+
+
+def find_admin_by_username(conn, username):
+    """管理者を 1 人返す（id・username・password_hash の dict）。いなければ None。"""
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, username, password_hash FROM admins WHERE username = %s;",
+            (username,),
+        )
+        return cur.fetchone()
+
+
+def get_import_status(conn):
+    """管理画面に出す取り込みの状況。
+
+    戻り値は {"novel_count": 作品数, "last_fetched_at": 最も新しい取得日時}。
+    作品が無ければ last_fetched_at は None。
+    """
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT count(*) AS novel_count, max(fetched_at) AS last_fetched_at"
+            " FROM novels;"
+        )
+        return dict(cur.fetchone())

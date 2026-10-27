@@ -4,6 +4,7 @@
 from datetime import datetime
 
 import psycopg2.extras
+from werkzeug.security import generate_password_hash
 
 # compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
 TEST_DB_DSN = (
@@ -82,3 +83,19 @@ def fetch_novels_by_ncode(conn):
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM novels;")
         return {row["ncode"]: row for row in cur.fetchall()}
+
+
+def add_admin(conn, username, password):
+    """テストの前提となる管理者を、create_admin.py を通さずに直接 DB に入れる。"""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO admins (username, password_hash) VALUES (%s, %s);",
+            (username, generate_password_hash(password, method="scrypt")),
+        )
+
+
+def fetch_admins_by_username(conn):
+    """admins の全行を {username: 行の dict} の形で返す。"""
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM admins;")
+        return {row["username"]: row for row in cur.fetchall()}

@@ -1,0 +1,29 @@
+{% extends "layout.html" %}
+
+{% block title %}管理者ログイン | なろう小説検索{% endblock %}
+
+{% block content %}
+<form class="card admin-form" action="{{ url_for('admin_login') }}" method="post">
+  <h1 class="admin-heading">管理者ログイン</h1>
+
+  {% if error %}
+  <p class="form-error" role="alert">{{ error }}</p>
+  {% endif %}
+
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+  <div class="field">
+    <label for="username">ユーザー名</label>
+    <input id="username" name="username" value="{{ username }}" autocomplete="username" required autofocus>
+  </div>
+
+  <div class="field">
+    <label for="password">パスワード</label>
+    <input id="password" type="password" name="password" autocomplete="current-password" required>
+  </div>
+
+  <div class="actions">
+    <button class="button" type="submit">ログイン</button>
+  </div>
+</form>
+{% endblock %}
