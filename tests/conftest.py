@@ -24,6 +24,17 @@ def test_db():
 
 
 @pytest.fixture
+def db_conn(test_db):
+    """テスト用 DB への接続。各テストの前に行を全部消して、空の状態から始める。"""
+    conn = psycopg2.connect(test_db)
+    with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM novels;")
+        cur.execute("DELETE FROM admins;")
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
 def app(test_db):
     flask_app.config.update(TESTING=True, DB_DSN=test_db)
     return flask_app
