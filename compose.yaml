@@ -4,6 +4,9 @@
 services:
   db:
     image: postgres:18
+    # サーバの DB（Asia/Tokyo）と揃える。既定の UTC だと
+    # DEFAULT CURRENT_TIMESTAMP の created_at がローカルでだけ 9 時間ずれる
+    command: ["postgres", "-c", "timezone=Asia/Tokyo"]
     ports:
       - "5433:5432"
     environment:

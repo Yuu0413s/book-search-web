@@ -19,6 +19,7 @@ mid_assign/                  → サーバの ~/myapp/
 ├── myapp.py                 # Flask 本体（ルートと CLI コマンド。DB 接続もここで作る）
 ├── narou.py                 # なろう API からの取得と変換
 ├── db.py                    # SQL（接続は呼ぶ側から受け取る）
+├── genres.py                # ジャンルのコード → 名前の辞書
 ├── schema.sql               # テーブル定義
 ├── config.example.py        # instance/config.py の見本
 ├── instance/config.py       # 秘密情報。Git・sftp とも除外（サーバ上で直接作る）

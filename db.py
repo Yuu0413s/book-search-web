@@ -1,7 +1,20 @@
 from datetime import timedelta
 
+import psycopg2.extras
+
 # なろう API の利用ガイドライン「保存したデータは長くても 2 週間以内に更新か削除」に従う
 STALE_DAYS = 14
+
+# 並び順。ORDER BY の列名はプレースホルダで渡せず SQL に直接書くことになるので、
+# 利用者の入力ではなく、必ずこの決まった文字列から選ぶ
+SORT_ORDERS = {
+    "point": "global_point DESC",
+    "fav": "fav_novel_cnt DESC",
+    "lastup": "general_lastup DESC",
+}
+
+# ILIKE のエスケープ文字。PostgreSQL の既定も「\」だが、既定に任せず明示する
+LIKE_ESCAPE = r"ESCAPE '\'"
 
 # created_at は「初めて DB に入った日時」なので、上書きのときは更新しない
 UPSERT_NOVEL_SQL = """
@@ -63,3 +76,62 @@ def save_novels(conn, novels, now):
         "updated": len(existing_ncodes),
         "deleted": deleted_count,
     }
+
+
+def search_novels(conn, *, words, writer, genre, sort, limit, offset):
+    """条件に合う作品を返す。戻り値は (作品の dict のリスト, 条件に合う総件数)。
+
+    words: キーワードのリスト。すべての語が、タイトル・あらすじ・タグのどれかに
+           含まれる作品だけを返す（空なら絞り込まない）
+    writer: 作者名の一部（None なら絞り込まない）
+    genre: ジャンルのコード（None なら絞り込まない）
+    sort: SORT_ORDERS のキー
+    """
+    if sort not in SORT_ORDERS:
+        raise ValueError(f"未知の並び順です: {sort!r}")
+
+    # 条件の文字列は決まったものだけで組み立て、利用者の入力はすべて params で渡す
+    conditions = []
+    params = []
+    for word in words:
+        conditions.append(
+            f"(title ILIKE %s {LIKE_ESCAPE}"
+            f" OR story ILIKE %s {LIKE_ESCAPE}"
+            f" OR keyword ILIKE %s {LIKE_ESCAPE})"
+        )
+        params += [_contains_pattern(word)] * 3
+    if writer is not None:
+        conditions.append(f"writer ILIKE %s {LIKE_ESCAPE}")
+        params.append(_contains_pattern(writer))
+    if genre is not None:
+        conditions.append("genre = %s")
+        params.append(genre)
+    where = " AND ".join(conditions) if conditions else "TRUE"
+
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(f"SELECT count(*) AS total FROM novels WHERE {where};", params)
+        total = cur.fetchone()["total"]
+
+        # 巨大な offset を渡すと PostgreSQL の OFFSET が桁あふれしてエラーになるので、
+        # 総件数以上なら一覧の SQL は実行しない（結果はどうせ空）
+        if offset >= total:
+            return [], total
+
+        # 並び順が同じ作品の順番を id で決めておく。決めないと、ページを移動したときに
+        # 同じ作品が 2 回出たり抜けたりすることがある
+        cur.execute(
+            f"SELECT * FROM novels WHERE {where}"
+            f" ORDER BY {SORT_ORDERS[sort]}, id LIMIT %s OFFSET %s;",
+            [*params, limit, offset],
+        )
+        return cur.fetchall(), total
+
+
+def _contains_pattern(text):
+    """部分一致用の ILIKE パターンを作る。
+
+    「\\」「%」「_」は ILIKE では特別な意味を持つので、普通の文字として扱うよう
+    エスケープする（「\\」を最初に置き換えないと、後で足した「\\」まで二重になる）。
+    """
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"

@@ -1,0 +1,94 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<form class="card search-form" action="{{ url_for('index') }}" method="get">
+  <div class="field">
+    <label for="q">キーワード</label>
+    <input id="q" type="search" name="q" value="{{ search.q }}" placeholder="タイトル・あらすじ・タグ（空白で区切ると AND 検索）">
+  </div>
+
+  <div class="field-row">
+    <div class="field">
+      <label for="writer">作者</label>
+      <input id="writer" type="search" name="writer" value="{{ search.writer }}" placeholder="作者名の一部">
+    </div>
+
+    <div class="field">
+      <label for="genre">ジャンル</label>
+      <select id="genre" name="genre">
+        <option value="">すべて</option>
+        {% for group, items in genre_groups %}
+        <optgroup label="{{ group }}">
+          {% for code, name in items %}
+          <option value="{{ code }}"{% if search.genre == code %} selected{% endif %}>{{ name }}</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="field">
+      <label for="sort">並び順</label>
+      <select id="sort" name="sort">
+        {% for key, label in sort_labels.items() %}
+        <option value="{{ key }}"{% if search.sort == key %} selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <div class="actions">
+    <a class="button button-ghost" href="{{ url_for('index') }}">クリア</a>
+    <button class="button" type="submit">検索</button>
+  </div>
+</form>
+
+{% if total == 0 %}
+  <p class="message">条件に合う作品がありません。</p>
+{% elif not novels %}
+  <p class="message">
+    このページには作品がありません。
+    <a href="{{ page_url(1) }}">1 ページ目へ</a>
+  </p>
+{% else %}
+  <p class="result-count">
+    {{ total }} 件中 {{ first_number }}〜{{ first_number + novels|length - 1 }} 件を表示
+  </p>
+
+  <ul class="novel-list">
+    {% for novel in novels %}
+    <li class="card novel">
+      <h2 class="novel-title">
+        <a href="{{ novel.ncode|novel_url }}" target="_blank" rel="noopener noreferrer">{{ novel.title }}</a>
+      </h2>
+      <p class="novel-meta">
+        <span>{{ novel.writer }}</span>
+        <span class="genre">{{ novel.genre|genre_name }}</span>
+        <span>最終更新 {{ novel.general_lastup.strftime('%Y-%m-%d') }}</span>
+      </p>
+      <p class="novel-story">{{ novel.story|excerpt }}</p>
+    </li>
+    {% endfor %}
+  </ul>
+{% endif %}
+
+{% if last_page > 1 %}
+<nav class="pagination" aria-label="ページ送り">
+  {% if search.page > 1 %}
+  <a href="{{ page_url(search.page - 1) }}">前へ</a>
+  {% endif %}
+
+  {% for number in range(1, last_page + 1) %}
+    {% if number == search.page %}
+    <span class="current" aria-current="page">{{ number }}</span>
+    {% else %}
+    <a href="{{ page_url(number) }}">{{ number }}</a>
+    {% endif %}
+  {% endfor %}
+
+  {% if search.page < last_page %}
+  <a href="{{ page_url(search.page + 1) }}">次へ</a>
+  {% endif %}
+</nav>
+{% endif %}
+{% endblock %}

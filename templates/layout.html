@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}なろう小説検索{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <header class="site-header">
+    <div class="container">
+      <a class="site-title" href="{{ url_for('index') }}">なろう小説検索</a>
+    </div>
+  </header>
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="site-footer">
+    <div class="container">
+      作品データ：<a href="https://dev.syosetu.com/man/api/" target="_blank" rel="noopener noreferrer">小説家になろう API</a>
+    </div>
+  </footer>
+</body>
+</html>
