@@ -8,6 +8,7 @@ import requests
 from werkzeug.security import generate_password_hash
 
 import ai_search
+import gemini
 
 # compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
 TEST_DB_DSN = (
@@ -136,7 +137,8 @@ def novel_id_of(conn, ncode):
 
 def insert_embedding(conn, novel_id, embedding, model=EMBEDDING_ID, source_hash="hash"):
     """テストの前提となるベクトルを、save_embeddings を通さずに直接 DB に入れる。"""
-    # 前提として入れるベクトルの更新日時を見るテストは無いので、固定の値でよい
+    # 更新日時は固定の値にする。test_embedding は、この値が保存時刻（NOW）と違うことで
+    # 「変換済みの作品を保存し直していない」を確かめるので、NOW と同じ値にしない
     with conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -200,3 +202,13 @@ class FakeEmbedTexts:
             number = len(self.vectors_by_text) + 1
             self.vectors_by_text[text] = [number * 0.25] * EMBEDDING_DIMENSIONS
         return self.vectors_by_text[text]
+
+
+def use_embed_errors(monkeypatch, errors):
+    """gemini.embed_texts を FakeEmbedTexts に差し替えて返す。
+
+    errors は {何回目の呼び出しか（1 から）: 投げる例外}。空なら常に成功する。
+    """
+    fake = FakeEmbedTexts(errors=errors)
+    monkeypatch.setattr(gemini, "embed_texts", fake)
+    return fake

@@ -6,7 +6,7 @@ import requests
 
 import gemini
 from myapp import app as flask_app
-from tests.helpers import TEST_DB_DSN
+from tests.helpers import TEST_DB_DSN, use_embed_errors
 
 SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
 
@@ -49,6 +49,12 @@ def block_gemini_requests(monkeypatch):
         raise requests.ConnectionError("テストでは実際の Gemini API を呼ばない")
 
     monkeypatch.setattr(gemini.requests, "post", refuse)
+
+
+@pytest.fixture
+def fake_embed(monkeypatch):
+    """Gemini でのベクトル化を、常に成功する差し替えにする（実際の API は呼ばない）。"""
+    return use_embed_errors(monkeypatch, {})
 
 
 @pytest.fixture

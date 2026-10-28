@@ -49,7 +49,7 @@ DUMMY_PASSWORD_HASH = generate_password_hash(
 )
 
 # ベクトル化に失敗したときの案内（管理画面用とコマンド用）
-QUOTA_MESSAGE = (
+ADMIN_QUOTA_MESSAGE = (
     "回数制限に達しました。1 分ほど待ってから「足りない分をベクトル化」で"
     "やり直してください"
 )
@@ -254,8 +254,8 @@ def run_embedding():
     コマンドと管理画面の両方から使う。Gemini での失敗は例外にせず結果に入れて返し、
     DB の失敗は例外をそのまま投げる。
     """
-    # キーが設定に無くても取り込みは止めない。空のまま渡せば、gemini.py が送る前に
-    # 弾くので、ほかの失敗と同じく失敗として数えられる
+    # キーが設定に無くても例外にせず、ほかの失敗と同じく失敗として数える（取り込みを
+    # 止めないため）。空のまま渡せば、gemini.py が送る前に弾く
     api_key = app.config.get("GEMINI_API_KEY", "")
     return embedding.embed_novels(get_db(), api_key, now_jst())
 
@@ -285,7 +285,7 @@ def flash_embedding_result(result):
     # キーの値は入らない
     app.logger.error("ベクトル化に失敗しました（%s）", error)
     if isinstance(error, gemini.GeminiQuotaError):
-        flash(QUOTA_MESSAGE)
+        flash(ADMIN_QUOTA_MESSAGE)
     else:
         flash(EMBEDDING_ERROR_MESSAGE)
 
@@ -334,8 +334,9 @@ def admin_import():
     # 結果を画面に直接返すと、再読み込みで取り込みがもう一度走るので、
     # flash で次の画面に渡して管理画面へ移す（PRG）
     flash(f"取り込みました（{format_import_result(result)}）")
-    # 取り込みは保存済み。ベクトル化に失敗しても取り込みは失敗にしない
-    # （失敗した分は「足りない分をベクトル化」でやり直せる）
+    # 取り込みは保存済み。Gemini でのベクトル化に失敗しても取り込みは失敗にしない
+    # （失敗した分は「足りない分をベクトル化」でやり直せる）。DB の失敗は、ほかの
+    # DB エラーと同じく 500 にする
     flash_embedding_result(run_embedding())
     return redirect(url_for("admin_home"))
 
@@ -373,7 +374,7 @@ def embed_for_command():
     return result
 
 
-def command_embedding_error(error):
+def command_embedding_error_message(error):
     # コマンドの出力はほかの学生が読めるエラーログではなく自分の端末に出るので、
     # 回数制限以外は理由の詳しい文言も出す（キーの値が入らないのは管理画面と同じ）
     if isinstance(error, gemini.GeminiQuotaError):
@@ -392,10 +393,11 @@ def import_novels_command():
         raise db_error_exception(e) from e
 
     click.echo(format_import_result(result))
-    # 取り込みは保存済みなので、ベクトル化に失敗してもコマンドは成功として終える
+    # 取り込みは保存済みなので、Gemini でのベクトル化に失敗してもコマンドは成功として
+    # 終える。DB の失敗は、取り込みのときと同じく終了コード 1 にする
     embedding_result = embed_for_command()
     if embedding_result["error"] is not None:
-        click.echo(command_embedding_error(embedding_result["error"]), err=True)
+        click.echo(command_embedding_error_message(embedding_result["error"]), err=True)
 
 
 @app.cli.command("embed-novels")
@@ -404,4 +406,4 @@ def embed_novels_command():
     result = embed_for_command()
     # ベクトル化だけが仕事なので、失敗があればシェルに伝わるよう終了コードを 1 にする
     if result["error"] is not None:
-        raise click.ClickException(command_embedding_error(result["error"]))
+        raise click.ClickException(command_embedding_error_message(result["error"]))

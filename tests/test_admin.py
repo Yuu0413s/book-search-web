@@ -8,7 +8,6 @@ import gemini
 import myapp
 import narou
 from tests.helpers import (
-    FakeEmbedTexts,
     add_admin,
     add_embedded_novel,
     add_novel,
@@ -16,12 +15,13 @@ from tests.helpers import (
     fetch_novels_by_ncode,
     insert_novel,
     make_novel,
+    use_embed_errors,
 )
 
 USERNAME = "admin"
 PASSWORD = "correct-horse"
 LOGIN_ERROR = "ユーザー名またはパスワードが違います"
-QUOTA_MESSAGE = (
+ADMIN_QUOTA_MESSAGE = (
     "回数制限に達しました。1 分ほど待ってから「足りない分をベクトル化」で"
     "やり直してください"
 )
@@ -74,21 +74,6 @@ def fetch_calls(monkeypatch):
 
     monkeypatch.setattr(narou, "fetch_top_novels", fake_fetch)
     return calls
-
-
-@pytest.fixture
-def fake_embed(monkeypatch):
-    """Gemini でのベクトル化を差し替える（実際の API は呼ばない）。"""
-    fake = FakeEmbedTexts()
-    monkeypatch.setattr(gemini, "embed_texts", fake)
-    return fake
-
-
-def use_embed_errors(monkeypatch, errors):
-    """指定した回の呼び出しで例外を投げる、ベクトル化の差し替えを入れる。"""
-    fake = FakeEmbedTexts(errors=errors)
-    monkeypatch.setattr(gemini, "embed_texts", fake)
-    return fake
 
 
 def post_embed(client):
@@ -306,7 +291,7 @@ def test_管理画面にベクトル化の状況を_作品数中の件数で表�
 
 
 def test_取り込みに成功すると管理画面へ移り_結果を1回だけ表示する(
-    admin_client, db_conn, monkeypatch
+    admin_client, db_conn, monkeypatch, fake_embed
 ):
     novels = [make_novel("N0001AA"), make_novel("N0002BB")]
     monkeypatch.setattr(narou, "fetch_top_novels", lambda: novels)
@@ -432,7 +417,7 @@ def test_回数制限なら_件数と_待ってからやり直す案内を出す
     assert response.status_code == 302
     page = admin_client.get("/admin").get_data(as_text=True)
     assert page.count(">ベクトル化しました（成功 0 件・失敗 2 件）<") == 1
-    assert page.count(f">{QUOTA_MESSAGE}<") == 1
+    assert page.count(f">{ADMIN_QUOTA_MESSAGE}<") == 1
     assert ERROR_LOG_MESSAGE not in page
     assert "テスト用の回数制限" in caplog.text
 
@@ -449,7 +434,7 @@ def test_回数制限以外の失敗なら_エラーログを見るよう案内�
     page = admin_client.get("/admin").get_data(as_text=True)
     assert page.count(">ベクトル化しました（成功 0 件・失敗 1 件）<") == 1
     assert page.count(f">{ERROR_LOG_MESSAGE}<") == 1
-    assert QUOTA_MESSAGE not in page
+    assert ADMIN_QUOTA_MESSAGE not in page
     # 理由の詳しい文言は、画面には出さずエラーログにだけ残す
     assert "テスト用の変換失敗" not in page
     assert "テスト用の変換失敗" in caplog.text
@@ -461,7 +446,9 @@ def test_失敗が無ければ_案内の行は出さない(admin_client, db_conn
     post_embed(admin_client)
 
     page = admin_client.get("/admin").get_data(as_text=True)
-    assert QUOTA_MESSAGE not in page
+    # ベクトル化が走って結果が出ていることを先に確かめ、「出ない」の空振りを防ぐ
+    assert page.count(">ベクトル化しました（成功 1 件・失敗 0 件）<") == 1
+    assert ADMIN_QUOTA_MESSAGE not in page
     assert ERROR_LOG_MESSAGE not in page
 
 

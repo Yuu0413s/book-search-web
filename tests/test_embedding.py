@@ -6,6 +6,7 @@ import ai_search
 import embedding
 import gemini
 from tests.helpers import (
+    EMBEDDING_DIMENSIONS,
     EMBEDDING_ID,
     FakeEmbedTexts,
     add_embedded_novel,
@@ -14,17 +15,12 @@ from tests.helpers import (
     fetch_novels_by_ncode,
     insert_embedding,
     novel_id_of,
+    use_embed_errors,
 )
 
 API_KEY = "test-api-key"
+# helpers.insert_embedding が入れる更新日時とは違う値にする
 NOW = datetime(2026, 10, 28, 15, 0, 0)
-
-
-@pytest.fixture
-def fake_embed(monkeypatch):
-    fake = FakeEmbedTexts()
-    monkeypatch.setattr(gemini, "embed_texts", fake)
-    return fake
 
 
 def document_text_of(conn, ncode):
@@ -39,20 +35,31 @@ def add_novels(conn, count):
     return ncodes
 
 
+def add_novels_in_each_state(conn):
+    """ベクトル化の状態が違う作品を 1 件ずつ入れる。
+
+    変換が必要な作品の ncode を id 順に返す。
+    """
+    add_novel(conn, "N0001AA")  # ベクトルが無い
+    add_embedded_novel(conn, "N0002BB")  # 今の内容で変換済み
+    add_novel(conn, "N0003CC")  # 変換した後に内容が変わった
+    insert_embedding(
+        conn,
+        novel_id_of(conn, "N0003CC"),
+        [0.1] * EMBEDDING_DIMENSIONS,
+        source_hash="old",
+    )
+    add_embedded_novel(conn, "N0004DD", model="gemini-embedding-001:768")  # 別のモデル
+    return ["N0001AA", "N0003CC", "N0004DD"]
+
+
 # --- ベクトル化 ---
 
 
 def test_変換が必要な作品だけをid順に送り_ベクトルとハッシュを保存する(
     db_conn, fake_embed
 ):
-    add_novel(db_conn, "N0001AA")  # ベクトルが無い
-    add_embedded_novel(db_conn, "N0002BB")  # 今の内容で変換済み
-    add_novel(db_conn, "N0003CC")  # 変換した後に内容が変わった
-    insert_embedding(
-        db_conn, novel_id_of(db_conn, "N0003CC"), [0.1] * 768, source_hash="old"
-    )
-    add_embedded_novel(db_conn, "N0004DD", model="gemini-embedding-001:768")
-    targets = ["N0001AA", "N0003CC", "N0004DD"]
+    targets = add_novels_in_each_state(db_conn)
     texts = [document_text_of(db_conn, ncode) for ncode in targets]
 
     result = embedding.embed_novels(db_conn, API_KEY, NOW)
@@ -101,8 +108,7 @@ def test_途中で回数制限になったら止め_それまでに保存した�
     monkeypatch.setattr(gemini, "MAX_BATCH_SIZE", 2)
     ncodes = add_novels(db_conn, 5)
     quota_error = gemini.GeminiQuotaError("テスト用の回数制限")
-    fake = FakeEmbedTexts(errors={2: quota_error})
-    monkeypatch.setattr(gemini, "embed_texts", fake)
+    fake = use_embed_errors(monkeypatch, {2: quota_error})
 
     result = embedding.embed_novels(db_conn, API_KEY, NOW)
 
@@ -118,8 +124,7 @@ def test_回数制限以外の失敗でも止める(db_conn, monkeypatch):
     monkeypatch.setattr(gemini, "MAX_BATCH_SIZE", 2)
     add_novels(db_conn, 3)
     api_error = gemini.GeminiApiError("テスト用の変換失敗")
-    fake = FakeEmbedTexts(errors={1: api_error})
-    monkeypatch.setattr(gemini, "embed_texts", fake)
+    fake = use_embed_errors(monkeypatch, {1: api_error})
 
     result = embedding.embed_novels(db_conn, API_KEY, NOW)
 
@@ -152,13 +157,7 @@ def test_変換している間に消えた作品は_成功にも失敗にも数�
 
 
 def test_状況_作品数と_今のモデルと内容でベクトルがある件数を返す(db_conn):
-    add_novel(db_conn, "N0001AA")  # ベクトルが無い
-    add_embedded_novel(db_conn, "N0002BB")  # 今の内容で変換済み
-    add_novel(db_conn, "N0003CC")  # 変換した後に内容が変わった
-    insert_embedding(
-        db_conn, novel_id_of(db_conn, "N0003CC"), [0.1] * 768, source_hash="old"
-    )
-    add_embedded_novel(db_conn, "N0004DD", model="gemini-embedding-001:768")
+    add_novels_in_each_state(db_conn)
 
     assert embedding.get_embedding_status(db_conn) == {
         "novel_count": 4,
