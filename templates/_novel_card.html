@@ -1,4 +1,6 @@
-{# 作品のカード。score を渡したときだけ類似度を出す #}
+{# 作品のカード。使う側で novel（作品の dict）を用意する。
+   変数 score があれば類似度を出し、show_similar_link を false にすると
+   「似ている作品」へのリンクを出さない（include は引数を取れないので、変数で切り替える） #}
 <li class="card novel">
   <h2 class="novel-title">
     <a href="{{ novel.ncode|novel_url }}" target="_blank" rel="noopener noreferrer">{{ novel.title }}</a>
@@ -12,7 +14,9 @@
     {% endif %}
   </p>
   <p class="novel-story">{{ novel.story|excerpt }}</p>
+  {% if show_similar_link|default(true) %}
   <p class="novel-links">
     <a href="{{ url_for('similar_novels', ncode=novel.ncode) }}">似ている作品</a>
   </p>
+  {% endif %}
 </li>

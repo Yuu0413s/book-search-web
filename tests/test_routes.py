@@ -301,6 +301,10 @@ def test_類似度のパーセントは_100倍して四捨五入した整数に�
     # 切り捨てなら 87 になる値で確かめる（0.8234 や 0.6 は、どちらでも同じ結果になる）
     assert myapp.percent(0.876) == 88
     assert myapp.percent(0.874) == 87
+    # ちょうど .5 になる値（0.125 は 2 進数でも誤差なく表せる）。
+    # round() だと偶数の側の 12 になる。負の数は 0 から遠い側に丸める
+    assert myapp.percent(0.125) == 13
+    assert myapp.percent(-0.125) == -13
 
 
 def test_AI検索_上位20件だけを表示する(client, db_conn, monkeypatch):
@@ -334,6 +338,16 @@ def test_AI検索_入力が空か空白だけなら_APIを呼ばず結果も出�
 
     assert fake.calls == []
     assert "類似度" not in page
+
+
+@pytest.mark.parametrize("query", ["mode=ai", "mode=ai&q="])
+def test_AI検索_入力が空なら_ベクトルが無くても準備ができていないと出さない(
+    client, db_conn, query
+):
+    add_novel(db_conn, "N0001AA")
+
+    page = get_html(client, query)
+
     assert NOT_READY_MESSAGE not in page
 
 
@@ -422,16 +436,20 @@ def test_URLの先頭にs2422016が付く環境では_タブと似ている作�
 ):
     add_novel_with_vector(db_conn, "N0001AA", 0.9)
     use_fake_embed_text(monkeypatch)
+    base_url = "http://localhost/s2422016/"
 
-    page = get_html(
-        client, ai_search_query("切ない恋の話"), base_url="http://localhost/s2422016/"
-    )
+    keyword_page = get_html(client, base_url=base_url)
+    ai_page = get_html(client, ai_search_query("切ない恋の話"), base_url=base_url)
 
-    links = hrefs_containing(page, "mode=ai") + hrefs_containing(page, "/similar")
-    assert hrefs_containing(page, "mode=ai")
-    assert hrefs_containing(page, "/similar")
-    assert all(link.startswith("/s2422016/") for link in links)
-    assert 'action="/s2422016/"' in page
+    ai_tab = r'<a [^>]*href="/s2422016/\?mode=ai"[^>]*>AI 検索</a>'
+    keyword_tab = r'<a [^>]*href="/s2422016/"[^>]*>キーワード検索</a>'
+    assert re.search(ai_tab, keyword_page)
+    assert re.search(keyword_tab, ai_page)
+    for page in [keyword_page, ai_page]:
+        links = hrefs_containing(page, "/similar")
+        assert links
+        assert all(link.startswith("/s2422016/") for link in links)
+    assert 'action="/s2422016/"' in ai_page
 
 
 # --- 似ている作品 ---
@@ -457,6 +475,9 @@ def test_似ている作品_元の作品と_近い順のほかの作品と類似
     assert "類似度 100%" not in page
     assert page.count('class="card novel"') == 3
     assert fake.calls == []
+    # 元の作品のカードには、自分への「似ている作品」リンクを付けない
+    assert not hrefs_containing(page, "/novels/N0001AA/similar")
+    assert hrefs_containing(page, "/novels/N0002BB/similar")
 
 
 def test_似ている作品_上位20件だけを表示する(client, db_conn):
@@ -474,6 +495,19 @@ def test_似ている作品_無い作品なら404(client, db_conn):
     add_novel_with_vector(db_conn, "N0001AA", 1.0)
 
     assert client.get("/novels/N9999ZZ/similar").status_code == 404
+
+
+@pytest.mark.parametrize("ncode", ["%00", "N0001%00AA", "N0001%0AAA", "N0001-AA"])
+def test_似ている作品_ncodeが英数字でなければ_DBに問い合わせずに404(
+    client, db_conn, monkeypatch, ncode
+):
+    # NUL を含む文字列を DB に渡すと、psycopg2 が DB のエラーでない例外を投げる
+    def fail_if_called(*args):
+        raise AssertionError("DB に問い合わせてはいけない")
+
+    monkeypatch.setattr(db, "find_novel_by_ncode", fail_if_called)
+
+    assert client.get(f"/novels/{ncode}/similar").status_code == 404
 
 
 def test_似ている作品_小文字のncodeでも同じ作品を出す(client, db_conn):

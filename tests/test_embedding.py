@@ -3,6 +3,7 @@ from datetime import datetime
 import pytest
 
 import ai_search
+import db
 import embedding
 import gemini
 from tests.helpers import (
@@ -23,6 +24,8 @@ from tests.helpers import (
 
 API_KEY = "test-api-key"
 NOW = datetime(2026, 10, 28, 15, 0, 0)
+# 今のモデル（EMBEDDING_ID）とは別のモデル・次元数で変換したことを表す
+OTHER_MODEL = "gemini-embedding-001:768"
 
 
 def document_text_of(conn, ncode):
@@ -51,7 +54,7 @@ def add_novels_in_each_state(conn):
         [0.1] * EMBEDDING_DIMENSIONS,
         source_hash="old",
     )
-    add_embedded_novel(conn, "N0004DD", model="gemini-embedding-001:768")  # 別のモデル
+    add_embedded_novel(conn, "N0004DD", model=OTHER_MODEL)  # 別のモデル
     return ["N0001AA", "N0003CC", "N0004DD"]
 
 
@@ -185,7 +188,7 @@ def test_文章で探す_類似度の高い順にlimit件を_作品と類似度�
     add_novel_with_vector(db_conn, "N0002BB", 0.9)
     add_novel_with_vector(db_conn, "N0003CC", 0.7)
     # 別のモデルのベクトルは、どれだけ近くても比べない
-    add_novel_with_vector(db_conn, "N0004DD", 0.99, model="gemini-embedding-001:768")
+    add_novel_with_vector(db_conn, "N0004DD", 0.99, model=OTHER_MODEL)
     fake = use_fake_embed_text(monkeypatch)
 
     results = embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=2)
@@ -204,7 +207,7 @@ def test_文章で探す_比べるベクトルが無ければ_APIを呼ばずに
     if state == "ベクトルが無い":
         add_novel(db_conn, "N0001AA")
     elif state == "別のモデルのベクトルだけ":
-        add_novel_with_vector(db_conn, "N0001AA", 0.9, model="gemini-embedding-001:768")
+        add_novel_with_vector(db_conn, "N0001AA", 0.9, model=OTHER_MODEL)
     fake = use_fake_embed_text(monkeypatch)
 
     assert embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=20) is None
@@ -221,6 +224,25 @@ def test_文章で探す_Geminiで失敗したら_その例外をそのまま投
     assert excinfo.value is quota_error
 
 
+def test_文章で探す_ベクトルを読んだ後に消えた作品は飛ばす(db_conn, monkeypatch):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    add_novel_with_vector(db_conn, "N0002BB", 0.7)
+    use_fake_embed_text(monkeypatch)
+    fetch_novels_by_ids = db.fetch_novels_by_ids
+
+    def fetch_after_deleting(conn, ids):
+        # ベクトルを読んだ後、作品を読む前に、取り込みで作品が消えた場合を再現する
+        with conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM novels WHERE ncode = 'N0001AA';")
+        return fetch_novels_by_ids(conn, ids)
+
+    monkeypatch.setattr(db, "fetch_novels_by_ids", fetch_after_deleting)
+
+    results = embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=20)
+
+    assert [novel["ncode"] for novel, _ in results] == ["N0002BB"]
+
+
 # --- 似ている作品 ---
 
 
@@ -231,7 +253,7 @@ def test_似ている作品_元の作品を除いて近い順にlimit件を返�
     add_novel_with_vector(db_conn, "N0002BB", 0.5)
     add_novel_with_vector(db_conn, "N0003CC", 0.9)
     add_novel_with_vector(db_conn, "N0004DD", 0.7)
-    add_novel_with_vector(db_conn, "N0005EE", 0.99, model="gemini-embedding-001:768")
+    add_novel_with_vector(db_conn, "N0005EE", 0.99, model=OTHER_MODEL)
     fake = use_fake_embed_text(monkeypatch)
 
     results = embedding.find_similar_novels(
@@ -248,7 +270,7 @@ def test_似ている作品_元の作品に今のベクトルが無ければNone
     if state == "ベクトルが無い":
         add_novel(db_conn, "N0001AA")
     else:
-        add_novel_with_vector(db_conn, "N0001AA", 1.0, model="gemini-embedding-001:768")
+        add_novel_with_vector(db_conn, "N0001AA", 1.0, model=OTHER_MODEL)
     # ほかの作品にはベクトルがあり、比べれば結果が出る状態にする
     add_novel_with_vector(db_conn, "N0002BB", 0.9)
 

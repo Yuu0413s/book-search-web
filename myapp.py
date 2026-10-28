@@ -1,6 +1,8 @@
 import math
+import re
 import secrets
 from datetime import datetime, timedelta
+from decimal import ROUND_HALF_UP, Decimal
 from zoneinfo import ZoneInfo
 
 import click
@@ -35,8 +37,9 @@ STORY_EXCERPT_LENGTH = 200
 AI_RESULT_LIMIT = 20
 # 読みたい話を 1〜2 文で書くには十分で、長い入力で API の利用量を増やされないため
 MAX_AI_QUERY_LENGTH = 200
-AI_UNAVAILABLE_MESSAGE = "AI 検索が一時的に使えません。キーワード検索をお使いください"
-AI_NOT_READY_MESSAGE = "AI 検索の準備ができていません"
+# なろうの ncode は英数字だけ。DB に問い合わせる前に形を確かめる（NUL などを含むと
+# psycopg2 が DB のエラーではない例外を投げ、500 になってエラーログに残るため）
+NCODE_PATTERN = re.compile(r"[0-9A-Za-z]+")
 
 # 並び順の表示名。キーは db.SORT_ORDERS と揃える
 SORT_LABELS = {
@@ -159,8 +162,9 @@ def excerpt(text):
 
 @app.template_filter("percent")
 def percent(score):
-    # 類似度（-1〜1）を 100 倍して、四捨五入した整数にする
-    return round(score * 100)
+    # 類似度（-1〜1）を 100 倍して、四捨五入した整数にする。
+    # round() は .5 を偶数の側に丸める（12.5 → 12）ので使わない
+    return int(Decimal(score * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
 
 @app.template_filter("genre_name")
@@ -207,7 +211,7 @@ def _to_int(text):
 def index():
     # mode が ai 以外の値や無いときは、今までどおりキーワード検索にする
     if request.args.get("mode") == "ai":
-        return ai_search()
+        return ai_search_page()
 
     search = parse_search_args(request.args)
     # str.split() は全角スペースも区切りとして扱う。同じ語は（順番を保ったまま）
@@ -251,22 +255,13 @@ def index():
     )
 
 
-def now_jst():
-    """DB に保存する今の時刻（タイムゾーン無しの JST）。"""
-    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
-    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
-    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
-    return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
-
-
-def ai_search():
+def ai_search_page():
     """AI 検索（/?mode=ai&q=…）の画面を返す。"""
     query = _remove_nul(request.args.get("q", "")).strip()
     if not query:
-        return render_ai_search(query)
+        return render_ai_search_page(query)
     if len(query) > MAX_AI_QUERY_LENGTH:
-        message = f"{MAX_AI_QUERY_LENGTH} 文字以内で入力してください"
-        return render_ai_search(query, message=message)
+        return render_ai_search_page(query, status="too_long")
 
     try:
         results = embedding.search_by_text(
@@ -277,25 +272,38 @@ def ai_search():
         # （flash_embedding_result のコメント）
         app.logger.error("AI 検索に失敗しました（%s）", e)
         # 503 は「一時的に使えない」の意味。誰でも使う画面なので、次の行動を案内する
-        return render_ai_search(query, message=AI_UNAVAILABLE_MESSAGE), 503
+        return render_ai_search_page(query, status="unavailable"), 503
     if results is None:
-        return render_ai_search(query, message=AI_NOT_READY_MESSAGE)
-    return render_ai_search(query, results=results)
+        return render_ai_search_page(query, status="not_ready")
+    return render_ai_search_page(query, results=results)
 
 
-def render_ai_search(query, results=None, message=None):
+def render_ai_search_page(query, results=None, status=None):
+    """status は案内を出すときの状態（too_long / unavailable / not_ready）。
+    案内の文言は、キーワード検索と同じくテンプレートに書く。
+    """
     return render_template(
         "search.html",
         mode="ai",
         ai_query=query,
         ai_results=results,
-        ai_message=message,
+        ai_status=status,
         max_ai_query_length=MAX_AI_QUERY_LENGTH,
     )
 
 
+def now_jst():
+    """DB に保存する今の時刻（タイムゾーン無しの JST）。"""
+    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
+    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
+    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
+    return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
+
+
 @app.route("/novels/<ncode>/similar")
 def similar_novels(ncode):
+    if not NCODE_PATTERN.fullmatch(ncode):
+        abort(404)
     # DB の ncode は大文字。作品ページの URL は小文字なので、手で打った小文字でも
     # 探せるようにする
     novel = db.find_novel_by_ncode(get_db(), ncode.upper())

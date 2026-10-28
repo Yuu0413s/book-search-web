@@ -217,7 +217,10 @@ def use_fake_embed(monkeypatch, errors=None):
 
 
 def vector_with_similarity(similarity):
-    """[1, 0, 0, …] とのコサイン類似度が similarity になる、長さ 1 のベクトル。"""
+    """[1, 0, 0, …] とのコサイン類似度が similarity になるベクトル。
+
+    要素は EMBEDDING_DIMENSIONS 個で、大きさ（ノルム）は 1（Gemini の値と同じ）。
+    """
     return [similarity, math.sqrt(1 - similarity**2)] + [0.0] * (
         EMBEDDING_DIMENSIONS - 2
     )
@@ -228,7 +231,11 @@ QUERY_VECTOR = vector_with_similarity(1.0)
 
 
 def add_novel_with_vector(conn, ncode, similarity, model=EMBEDDING_ID, **overrides):
-    """QUERY_VECTOR との類似度が similarity になるベクトルを持つ作品を入れる。"""
+    """QUERY_VECTOR との類似度が similarity になるベクトルを持つ作品を入れる。
+
+    source_hash はダミーの値（insert_embedding の既定）なので、ベクトル化の対象を
+    判定すると「内容が変わった」扱いになる。検索のテストだけで使う。
+    """
     add_novel(conn, ncode, **overrides)
     insert_embedding(
         conn, novel_id_of(conn, ncode), vector_with_similarity(similarity), model=model

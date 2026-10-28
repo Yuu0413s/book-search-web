@@ -1,0 +1,9 @@
+{# 類似度の高い順の結果一覧（AI 検索と似ている作品で共通）。
+   使う側で results（(作品, 類似度) の空でないリスト）と order_label（「〜の近い順」）を用意する #}
+<p class="result-count">{{ order_label }}に {{ results|length }} 件を表示。類似度は、数字が大きいほど内容が近い（目安）</p>
+
+<ul class="novel-list">
+  {% for novel, score in results %}
+  {% include "_novel_card.html" %}
+  {% endfor %}
+</ul>

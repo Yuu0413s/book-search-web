@@ -6,7 +6,10 @@
 <h1 class="page-heading">似ている作品</h1>
 
 <ul class="novel-list">
+  {# 今見ている作品なので、自分への「似ている作品」リンクは出さない #}
+  {% with show_similar_link=false %}
   {% include "_novel_card.html" %}
+  {% endwith %}
 </ul>
 
 {% if results is none %}
@@ -14,12 +17,8 @@
 {% elif not results %}
   <p class="message">似ている作品がありません。</p>
 {% else %}
-  <p class="result-count">ベクトルが近い順に {{ results|length }} 件を表示（類似度は、数字が大きいほど内容が近い（目安））</p>
-
-  <ul class="novel-list">
-    {% for novel, score in results %}
-    {% include "_novel_card.html" %}
-    {% endfor %}
-  </ul>
+  {% with order_label="内容の近い順" %}
+  {% include "_similarity_results.html" %}
+  {% endwith %}
 {% endif %}
 {% endblock %}

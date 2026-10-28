@@ -1,0 +1,28 @@
+{# 検索画面の AI 検索（search.html から include する） #}
+<form class="card search-form" action="{{ url_for('index') }}" method="get">
+  <input type="hidden" name="mode" value="ai">
+  <div class="field">
+    <label for="q">読みたい話</label>
+    <input id="q" type="search" name="q" value="{{ ai_query }}" maxlength="{{ max_ai_query_length }}" placeholder="例：追放された主人公が辺境でのんびり暮らす話（{{ max_ai_query_length }} 文字まで）">
+  </div>
+
+  <div class="actions">
+    <a class="button button-ghost" href="{{ url_for('index', mode='ai') }}">クリア</a>
+    <button class="button" type="submit">AI で検索</button>
+  </div>
+</form>
+
+{% if ai_status == "too_long" %}
+  <p class="message">{{ max_ai_query_length }} 文字以内で入力してください。</p>
+{% elif ai_status == "unavailable" %}
+  <p class="message">AI 検索が一時的に使えません。キーワード検索をお使いください。</p>
+{% elif ai_status == "not_ready" %}
+  <p class="message">AI 検索の準備ができていません。</p>
+{% elif ai_results %}
+  {% with results=ai_results, order_label="意味の近い順" %}
+  {% include "_similarity_results.html" %}
+  {% endwith %}
+{% elif ai_results is not none %}
+  {# ベクトルを読んでから作品を読むまでの間に、取り込みで作品が消えたときだけ起きる #}
+  <p class="message">近い作品がありません。</p>
+{% endif %}
