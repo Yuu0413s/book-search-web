@@ -57,7 +57,7 @@ mid_assign/                  → サーバの ~/myapp/
 - エラーログ：`/var/log/httpd/s2422016-error_log`（ほかの学生も読めるので、秘密の値をログに出さない）
 
 ## このプロジェクト固有のルール
-- Git はローカルのみ。Issue・PR は使わず、main に直接コミットする
+- GitHub（Yuu0413s/book-search-web、公開）に push する。Issue・PR は使わず、main に直接コミットする
 - 利用者の入力は必ずプレースホルダで SQL に渡す。SQL 文に埋め込んでよいのは、コード内で決めた固定の文字列（列名・並び順・条件の組み立て）だけ
 - URL は `url_for()` で作る（サーバでは先頭に `/s2422016` が付くため）
 - POST のフォームには `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">` を入れる（すべての POST で CSRF トークンを確かめ、無ければ 400 になるため）
