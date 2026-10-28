@@ -4,7 +4,7 @@ import pytest
 import requests
 
 import gemini
-from tests.helpers import FakeResponse
+from tests.helpers import EMBEDDING_ID, FakeResponse
 
 API_KEY = "test-api-key-1234"
 EMBED_URL = (
@@ -258,8 +258,8 @@ def test_例外の文言にAPIキーが含まれない(monkeypatch, call):
 def test_キーの形が正しくなければ_APIを呼ばずにGeminiApiErrorで_文言にキーが入らない(
     monkeypatch, api_key, call_with_key
 ):
-    # 空白や改行が混ざると、requests や http.client が例外の文言にキーの値を
-    # そのまま入れ、ほかの学生も読めるエラーログに出てしまう
+    # 先頭の空白や改行は requests の例外の文言にキーの値が入り、末尾の改行や全角文字は
+    # GeminiApiError 以外の例外になる。どれも送る前に弾くことを確かめる
     calls = []
     monkeypatch.setattr(
         gemini.requests,
@@ -271,12 +271,16 @@ def test_キーの形が正しくなければ_APIを呼ばずにGeminiApiError�
         call_with_key(api_key)
     assert calls == []
     assert API_KEY not in str(excinfo.value)
+    # 「途中にCR」はキーが API_KEY と一致せず、上の確認では必ず通ってしまうので、
+    # キーの一部が入っていないことも確かめる
     assert "test-api" not in str(excinfo.value)
 
 
 def test_保存するモデルの名前には次元数も含める():
     # 次元数だけを変えたときも、古いベクトルを作り直す対象として見分けるため
-    assert gemini.EMBEDDING_ID == "gemini-embedding-2:768"
+    # 期待値は helpers の EMBEDDING_ID（"gemini-embedding-2:768"）。ほかのテストも
+    # この値を使うので、1 か所にまとめ、実装とずれたらここで落ちるようにする
+    assert gemini.EMBEDDING_ID == EMBEDDING_ID
 
 
 # --- 応答の形の異常 ---

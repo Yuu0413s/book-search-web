@@ -180,9 +180,9 @@ def get_import_status(conn):
 def fetch_embedding_targets(conn):
     """ベクトル化が必要かを判定するための、全作品の一覧（id 順）。
 
-    各作品の id・title・story・keyword と、保存済みのベクトルのモデル名
-    （embedding_model）・ハッシュ（embedding_hash）を返す。
-    ベクトルが無い作品は、モデル名・ハッシュが None になる。
+    各作品の id・title・story・keyword と、保存済みのベクトルのモデル名と次元数
+    （embedding_model。gemini.EMBEDDING_ID の形）・ハッシュ（embedding_hash）を返す。
+    ベクトルが無い作品は、embedding_model・embedding_hash が None になる。
     """
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(

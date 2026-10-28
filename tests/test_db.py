@@ -342,7 +342,7 @@ def make_embedding(novel_id, embedding=(0.1, 0.2, 0.3), **overrides):
     return item
 
 
-def test_変換対象_ベクトルがある作品はモデル名とハッシュ付きで_無い作品はNoneで返す(
+def test_変換対象_ベクトルがあればモデル名と次元数_ハッシュ付き_無ければNone(
     db_conn,
 ):
     add_novel(db_conn, "N0001AA", title="一作目", story="あらすじ1", keyword="タグ")
@@ -476,7 +476,7 @@ def test_ベクトル保存_空のリストなら0件(db_conn):
     assert db.save_embeddings(db_conn, [], NOW) == 0
 
 
-def test_ベクトル読み出し_指定したモデルのものだけを作品のid順に返す(db_conn):
+def test_ベクトル読み出し_指定したモデルと次元数のものだけを作品のid順に返す(db_conn):
     for ncode in ["N0001AA", "N0002BB", "N0003CC"]:
         add_novel(db_conn, ncode)
     first_id, second_id, third_id = (

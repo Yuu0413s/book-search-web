@@ -23,8 +23,13 @@ BATCH_EMBED_URL = f"{API_BASE_URL}:batchEmbedContents"
 EMBED_TIMEOUT_SECONDS = 10
 BATCH_EMBED_TIMEOUT_SECONDS = 30
 DIMENSION_CONFIG = {"outputDimensionality": DIMENSIONS}
-# Google の API キーに使われる文字。これ以外（空白・改行など）が混ざっていると、
-# requests や http.client が例外の文言にキーの値をそのまま入れてしまう
+# Google の API キーに使われる文字。これ以外が混ざったまま送ると、次のことが起きる
+# - 先頭の空白や改行: requests の例外の文言にキーの値が入り、それを包む
+#   GeminiApiError の文言を通して、ほかの学生も読めるエラーログに出る
+# - 末尾の改行・全角文字: http.client などが RequestException ではない例外を投げ、
+#   下の except をすり抜ける（末尾の改行なら、その文言にもキーの値が入る）
+# - 末尾の空白: 気付かれないまま送られ、Google に弾かれる
+# そこで送る前に弾き、設定の間違いだと分かる文言にする
 API_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
 
@@ -112,8 +117,9 @@ def _post(url, body, api_key, timeout):
             timeout=timeout,
             allow_redirects=False,
         )
-        # 以下の 2 つの例外は RequestException の一種ではないので、下の except には
-        # 捕まらず、そのまま呼ぶ側に届く
+        # ここで投げる GeminiQuotaError / GeminiApiError は RequestException の一種
+        # ではないので、下の except には捕まらず、そのまま呼ぶ側に届く
+
         # 回数制限は、時間を置けば直る。呼ぶ側が残りの変換を止められるよう分ける
         if response.status_code == 429:
             raise GeminiQuotaError("Gemini API の回数制限に達しました")

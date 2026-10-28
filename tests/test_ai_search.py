@@ -72,7 +72,7 @@ def test_ハッシュ_同じ文章なら同じ値_違えば違う値():
 
 
 def embedded_target(novel_id, **overrides):
-    """今のモデル・今の内容で変換済みの作品。"""
+    """今のモデルと次元数・今の内容で変換済みの作品。"""
     target = make_target(novel_id, **overrides)
     target["embedding_model"] = EMBEDDING_ID
     target["embedding_hash"] = ai_search.source_hash(ai_search.document_text(target))
@@ -85,7 +85,7 @@ def test_選び出し_ベクトルが無い作品は変換が必要():
     assert ai_search.select_novels_to_embed(targets, EMBEDDING_ID) == targets
 
 
-def test_選び出し_モデルも内容も同じなら変換しない():
+def test_選び出し_モデルと次元数も内容も同じなら変換しない():
     targets = [embedded_target(1)]
 
     assert ai_search.select_novels_to_embed(targets, EMBEDDING_ID) == []
