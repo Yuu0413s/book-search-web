@@ -2,11 +2,17 @@ import re
 from datetime import datetime, timedelta
 
 import pytest
+import requests
 
+import gemini
 import myapp
 import narou
 from tests.helpers import (
+    FakeEmbedTexts,
     add_admin,
+    add_embedded_novel,
+    add_novel,
+    fetch_embeddings_by_novel_id,
     fetch_novels_by_ncode,
     insert_novel,
     make_novel,
@@ -15,6 +21,11 @@ from tests.helpers import (
 USERNAME = "admin"
 PASSWORD = "correct-horse"
 LOGIN_ERROR = "ユーザー名またはパスワードが違います"
+QUOTA_MESSAGE = (
+    "回数制限に達しました。1 分ほど待ってから「足りない分をベクトル化」で"
+    "やり直してください"
+)
+ERROR_LOG_MESSAGE = "ベクトル化に失敗しました。詳しくはエラーログを見てください"
 
 
 def csrf_token_in(page_html):
@@ -63,6 +74,33 @@ def fetch_calls(monkeypatch):
 
     monkeypatch.setattr(narou, "fetch_top_novels", fake_fetch)
     return calls
+
+
+@pytest.fixture
+def fake_embed(monkeypatch):
+    """Gemini でのベクトル化を差し替える（実際の API は呼ばない）。"""
+    fake = FakeEmbedTexts()
+    monkeypatch.setattr(gemini, "embed_texts", fake)
+    return fake
+
+
+def use_embed_errors(monkeypatch, errors):
+    """指定した回の呼び出しで例外を投げる、ベクトル化の差し替えを入れる。"""
+    fake = FakeEmbedTexts(errors=errors)
+    monkeypatch.setattr(gemini, "embed_texts", fake)
+    return fake
+
+
+def post_embed(client):
+    token = page_csrf_token(client, "/admin")
+    return client.post("/admin/embed", data={"csrf_token": token})
+
+
+def flashed_once(client, message):
+    """管理画面を開いたとき、message の行がちょうど 1 回出ているか。"""
+    # 文言の前後に余計な文字が付いても、同じ行が 2 回出ても落ちるよう、
+    # タグの区切りまで含めて数える
+    return client.get("/admin").get_data(as_text=True).count(f">{message}<") == 1
 
 
 # --- https への切り替え ---
@@ -218,10 +256,12 @@ def test_ログインせずに管理画面を開くとログイン画面へ移�
     assert_logged_out(client)
 
 
-@pytest.mark.parametrize("path", ["/admin/import", "/admin/logout"])
+@pytest.mark.parametrize("path", ["/admin/import", "/admin/embed", "/admin/logout"])
 def test_ログインせずにPOSTするとログイン画面へ移り_何も実行しない(
-    client, db_conn, fetch_calls, path
+    client, db_conn, fetch_calls, fake_embed, path
 ):
+    # ベクトルの無い作品を入れておき、ベクトル化が走れば送られる状態にする
+    add_novel(db_conn, "N0099ZZ")
     # CSRF トークンは正しいものを送り、ログインしていないことだけで弾かれるか確かめる
     token = page_csrf_token(client, "/admin/login")
 
@@ -230,6 +270,7 @@ def test_ログインせずにPOSTするとログイン画面へ移り_何も実
     assert response.status_code == 302
     assert response.headers["Location"] == "/admin/login"
     assert fetch_calls == []
+    assert fake_embed.calls == []
 
 
 # --- 管理画面 ---
@@ -249,6 +290,16 @@ def test_作品が無ければまだ取り込んでいないと表示する(admi
     page = admin_client.get("/admin").get_data(as_text=True)
 
     assert "まだ取り込んでいません" in page
+
+
+def test_管理画面にベクトル化の状況を_作品数中の件数で表示する(admin_client, db_conn):
+    add_embedded_novel(db_conn, "N0001AA")
+    add_embedded_novel(db_conn, "N0002BB")
+    add_novel(db_conn, "N0003CC")
+
+    page = admin_client.get("/admin").get_data(as_text=True)
+
+    assert "3 件中 2 件" in page
 
 
 # --- 取り込み ---
@@ -294,6 +345,172 @@ def test_APIの取得に失敗したら500になりDBは変えない(
     assert "追加" not in admin_client.get("/admin").get_data(as_text=True)
 
 
+def test_取り込むと続けてベクトル化し_両方の結果を表示する(
+    admin_client, db_conn, monkeypatch, fake_embed
+):
+    novels = [make_novel("N0001AA"), make_novel("N0002BB")]
+    monkeypatch.setattr(narou, "fetch_top_novels", lambda: novels)
+    token = page_csrf_token(admin_client, "/admin")
+
+    response = admin_client.post("/admin/import", data={"csrf_token": token})
+
+    assert response.status_code == 302
+    assert len(fetch_embeddings_by_novel_id(db_conn)) == 2
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert page.count(">取り込みました（追加 2 件・更新 0 件・削除 0 件）<") == 1
+    assert page.count(">ベクトル化しました（成功 2 件・失敗 0 件）<") == 1
+
+
+def test_ベクトル化に失敗しても取り込みは保存され_失敗の件数を表示する(
+    admin_client, db_conn, monkeypatch
+):
+    novels = [make_novel("N0001AA"), make_novel("N0002BB")]
+    monkeypatch.setattr(narou, "fetch_top_novels", lambda: novels)
+    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+    token = page_csrf_token(admin_client, "/admin")
+
+    response = admin_client.post("/admin/import", data={"csrf_token": token})
+
+    assert response.status_code == 302
+    assert set(fetch_novels_by_ncode(db_conn)) == {"N0001AA", "N0002BB"}
+    assert fetch_embeddings_by_novel_id(db_conn) == {}
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert page.count(">取り込みました（追加 2 件・更新 0 件・削除 0 件）<") == 1
+    assert page.count(">ベクトル化しました（成功 0 件・失敗 2 件）<") == 1
+    assert page.count(f">{ERROR_LOG_MESSAGE}<") == 1
+
+
+def test_取り込みに失敗したらベクトル化しない(
+    admin_client, db_conn, monkeypatch, fake_embed
+):
+    # ベクトルの無い作品を入れておき、ベクトル化が走れば送られる状態にする
+    add_novel(db_conn, "N0099ZZ")
+
+    def failing_fetch():
+        raise narou.NarouApiError("テスト用の取得失敗")
+
+    monkeypatch.setattr(narou, "fetch_top_novels", failing_fetch)
+    token = page_csrf_token(admin_client, "/admin")
+
+    response = admin_client.post("/admin/import", data={"csrf_token": token})
+
+    assert response.status_code == 500
+    assert fake_embed.calls == []
+
+
+# --- 足りない分のベクトル化 ---
+
+
+def test_足りない分をベクトル化すると管理画面へ移り_結果を1回だけ表示する(
+    admin_client, db_conn, fake_embed
+):
+    add_novel(db_conn, "N0001AA")
+    add_novel(db_conn, "N0002BB")
+    add_embedded_novel(db_conn, "N0003CC")
+
+    response = post_embed(admin_client)
+
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/admin"
+    assert len(fake_embed.calls[0]) == 2
+    assert len(fetch_embeddings_by_novel_id(db_conn)) == 3
+    message = "ベクトル化しました（成功 2 件・失敗 0 件）"
+    assert flashed_once(admin_client, message)
+    # 開き直すとメッセージは消えていて、2 回目の表示では出ないことを確かめる
+    assert message not in admin_client.get("/admin").get_data(as_text=True)
+
+
+def test_回数制限なら_件数と_待ってからやり直す案内を出す(
+    admin_client, db_conn, monkeypatch, caplog
+):
+    add_novel(db_conn, "N0001AA")
+    add_novel(db_conn, "N0002BB")
+    use_embed_errors(monkeypatch, {1: gemini.GeminiQuotaError("テスト用の回数制限")})
+
+    response = post_embed(admin_client)
+
+    assert response.status_code == 302
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert page.count(">ベクトル化しました（成功 0 件・失敗 2 件）<") == 1
+    assert page.count(f">{QUOTA_MESSAGE}<") == 1
+    assert ERROR_LOG_MESSAGE not in page
+    assert "テスト用の回数制限" in caplog.text
+
+
+def test_回数制限以外の失敗なら_エラーログを見るよう案内し_理由を記録する(
+    admin_client, db_conn, monkeypatch, caplog
+):
+    add_novel(db_conn, "N0001AA")
+    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+
+    response = post_embed(admin_client)
+
+    assert response.status_code == 302
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert page.count(">ベクトル化しました（成功 0 件・失敗 1 件）<") == 1
+    assert page.count(f">{ERROR_LOG_MESSAGE}<") == 1
+    assert QUOTA_MESSAGE not in page
+    # 理由の詳しい文言は、画面には出さずエラーログにだけ残す
+    assert "テスト用の変換失敗" not in page
+    assert "テスト用の変換失敗" in caplog.text
+
+
+def test_失敗が無ければ_案内の行は出さない(admin_client, db_conn, fake_embed):
+    add_novel(db_conn, "N0001AA")
+
+    post_embed(admin_client)
+
+    page = admin_client.get("/admin").get_data(as_text=True)
+    assert QUOTA_MESSAGE not in page
+    assert ERROR_LOG_MESSAGE not in page
+
+
+def record_post_calls(monkeypatch):
+    """Gemini への通信を記録する差し替えを入れる（呼ばれたら通信エラーにする）。"""
+    calls = []
+
+    def fake_post(*args, **kwargs):
+        calls.append(kwargs)
+        raise requests.ConnectionError("テスト用の通信エラー")
+
+    monkeypatch.setattr(gemini.requests, "post", fake_post)
+    return calls
+
+
+def test_APIキーが設定に無ければ_APIを呼ばずに失敗として数える(
+    admin_client, db_conn, monkeypatch
+):
+    add_novel(db_conn, "N0001AA")
+    monkeypatch.delitem(admin_client.application.config, "GEMINI_API_KEY")
+    post_calls = record_post_calls(monkeypatch)
+
+    response = post_embed(admin_client)
+
+    assert response.status_code == 302
+    assert post_calls == []
+    assert flashed_once(admin_client, "ベクトル化しました（成功 0 件・失敗 1 件）")
+
+
+def test_APIキーの形が正しくなくても_キーの値はエラーログにも画面にも出ない(
+    admin_client, db_conn, monkeypatch, caplog
+):
+    # 先頭の改行は、そのまま送ると requests の例外の文言にキーの値が入る形
+    add_novel(db_conn, "N0001AA")
+    monkeypatch.setitem(
+        admin_client.application.config, "GEMINI_API_KEY", "\nsecret-gemini-key"
+    )
+    post_calls = record_post_calls(monkeypatch)
+
+    response = post_embed(admin_client)
+
+    assert response.status_code == 302
+    assert post_calls == []
+    # 失敗したことと理由はエラーログに残る（キーの値は入らない）
+    assert "GEMINI_API_KEY" in caplog.text
+    assert "secret-gemini-key" not in caplog.text
+    assert "secret-gemini-key" not in admin_client.get("/admin").get_data(as_text=True)
+
+
 # --- ログアウト ---
 
 
@@ -334,6 +551,19 @@ def test_CSRFトークンが無いか違えば取り込みは400になり実行�
 
     assert response.status_code == 400
     assert fetch_calls == []
+
+
+@pytest.mark.parametrize("form", [{}, {"csrf_token": "wrong-token"}])
+def test_CSRFトークンが無いか違えばベクトル化は400になり実行しない(
+    admin_client, db_conn, fake_embed, form
+):
+    add_novel(db_conn, "N0001AA")
+    page_csrf_token(admin_client, "/admin")
+
+    response = admin_client.post("/admin/embed", data=form)
+
+    assert response.status_code == 400
+    assert fake_embed.calls == []
 
 
 def test_CSRFトークンが無ければ正しいパスワードでもログインは400になる(client, db_conn):

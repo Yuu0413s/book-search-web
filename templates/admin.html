@@ -26,12 +26,20 @@
     <dd>{{ status.novel_count }} 件</dd>
     <dt>最終取り込み</dt>
     <dd>{{ status.last_fetched_at.strftime('%Y-%m-%d %H:%M') }}</dd>
+    <dt>ベクトル化</dt>
+    <dd>{{ embedding_status.novel_count }} 件中 {{ embedding_status.embedded_count }} 件</dd>
   </dl>
   {% endif %}
 
-  <form class="actions" action="{{ url_for('admin_import') }}" method="post">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button class="button" type="submit">なろう API から取り込む</button>
-  </form>
+  <div class="actions">
+    <form action="{{ url_for('admin_embed') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button-ghost" type="submit">足りない分をベクトル化</button>
+    </form>
+    <form action="{{ url_for('admin_import') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button" type="submit">なろう API から取り込む</button>
+    </form>
+  </div>
 </section>
 {% endblock %}

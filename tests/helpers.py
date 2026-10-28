@@ -7,6 +7,8 @@ import psycopg2.extras
 import requests
 from werkzeug.security import generate_password_hash
 
+import ai_search
+
 # compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
 TEST_DB_DSN = (
     "host=localhost port=5433 dbname=narou_search_test user=narou password=narou"
@@ -15,6 +17,7 @@ TEST_DB_DSN = (
 # novel_embeddings.model に入る値（gemini.EMBEDDING_ID）。テストは仕様書なので、
 # 実装の定数を参照せずに書く
 EMBEDDING_ID = "gemini-embedding-2:768"
+EMBEDDING_DIMENSIONS = 768
 
 
 class FakeResponse:
@@ -150,3 +153,50 @@ def fetch_embeddings_by_novel_id(conn):
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM novel_embeddings;")
         return {row["novel_id"]: row for row in cur.fetchall()}
+
+
+def add_embedded_novel(conn, ncode, model=EMBEDDING_ID, **overrides):
+    """今の内容でベクトル化済みの作品を入れる。
+
+    model を変えれば、別のモデルで変換済みの作品になる。
+    """
+    add_novel(conn, ncode, **overrides)
+    novel = fetch_novels_by_ncode(conn)[ncode]
+    insert_embedding(
+        conn,
+        novel["id"],
+        [0.1] * EMBEDDING_DIMENSIONS,
+        model=model,
+        source_hash=ai_search.source_hash(ai_search.document_text(novel)),
+    )
+
+
+class FakeEmbedTexts:
+    """gemini.embed_texts の代わり（実際の API は呼ばない）。
+
+    呼ばれるたびに、送られた文章のリストを calls に、キーを api_keys に記録する。
+    errors は {何回目の呼び出しか（1 から）: 投げる例外}。
+    文章ごとに違うベクトルを返し、vectors_by_text でどの文章に何を返したか引ける。
+    値は 0.25 刻みにして、DB の REAL（4 バイトの小数）に入れても丸めで
+    変わらないようにする。
+    """
+
+    def __init__(self, errors=None):
+        self.calls = []
+        self.api_keys = []
+        self.errors = errors or {}
+        self.vectors_by_text = {}
+
+    def __call__(self, texts, api_key):
+        self.calls.append(list(texts))
+        self.api_keys.append(api_key)
+        error = self.errors.get(len(self.calls))
+        if error is not None:
+            raise error
+        return [self._vector_for(text) for text in texts]
+
+    def _vector_for(self, text):
+        if text not in self.vectors_by_text:
+            number = len(self.vectors_by_text) + 1
+            self.vectors_by_text[text] = [number * 0.25] * EMBEDDING_DIMENSIONS
+        return self.vectors_by_text[text]

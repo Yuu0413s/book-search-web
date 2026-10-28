@@ -20,6 +20,7 @@ mid_assign/                  → サーバの ~/myapp/
 ├── narou.py                 # なろう API からの取得と変換
 ├── gemini.py                # Gemini 埋め込み API の呼び出し（文章 → ベクトル）
 ├── ai_search.py             # AI 検索の計算（文章の組み立て・ハッシュ・類似度・上位の選び出し）
+├── embedding.py             # 作品のベクトル化（DB の作品を Gemini でベクトルにして保存する）
 ├── db.py                    # SQL（接続は呼ぶ側から受け取る）
 ├── auth.py                  # ログイン必須チェック・CSRF トークン
 ├── genres.py                # ジャンルのコード → 名前の辞書
@@ -44,7 +45,8 @@ mid_assign/                  → サーバの ~/myapp/
 | `.venv/bin/ruff format .` | 整形 |
 | `uv pip install -r requirements-dev.txt` | 依存関係のインストール |
 | `./deploy.sh` | サーバにデプロイ |
-| `.venv/bin/flask --app myapp import-novels` | なろう API から取り込む（サーバでは `cd ~/myapp && python3 -m flask --app myapp import-novels`） |
+| `.venv/bin/flask --app myapp import-novels` | なろう API から取り込み、続けてベクトル化する（サーバでは `cd ~/myapp && python3 -m flask --app myapp import-novels`） |
+| `.venv/bin/flask --app myapp embed-novels` | ベクトルが無い・古い作品だけをベクトル化する（サーバでは `cd ~/myapp && python3 -m flask --app myapp embed-novels`） |
 | `.venv/bin/python create_admin.py` | 管理者を作る（サーバでは `cd ~/myapp && python3 create_admin.py`） |
 
 ## デプロイ

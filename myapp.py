@@ -20,6 +20,8 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 import auth
 import db
+import embedding
+import gemini
 import genres
 import narou
 
@@ -45,6 +47,17 @@ LOGIN_ERROR = "ユーザー名またはパスワードが違います"
 DUMMY_PASSWORD_HASH = generate_password_hash(
     secrets.token_hex(16), method=PASSWORD_HASH_METHOD
 )
+
+# ベクトル化に失敗したときの案内（管理画面用とコマンド用）
+QUOTA_MESSAGE = (
+    "回数制限に達しました。1 分ほど待ってから「足りない分をベクトル化」で"
+    "やり直してください"
+)
+COMMAND_QUOTA_MESSAGE = (
+    "回数制限に達しました。1 分ほど待ってから embed-novels でやり直してください"
+)
+# 理由の詳しい文言は、管理画面には出さずエラーログにだけ残す
+EMBEDDING_ERROR_MESSAGE = "ベクトル化に失敗しました。詳しくはエラーログを見てください"
 
 # instance_relative_config=True で、設定ファイルを instance/ から探す
 app = Flask(__name__, instance_relative_config=True)
@@ -218,17 +231,33 @@ def index():
     )
 
 
+def now_jst():
+    """DB に保存する今の時刻（タイムゾーン無しの JST）。"""
+    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
+    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
+    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
+    return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
+
+
 def run_import():
     """なろう API から取り込み、db.save_novels の結果を返す。
 
     取り込みコマンドと管理画面の両方から使う。失敗したら例外をそのまま投げる。
     """
     novels = narou.fetch_top_novels()
-    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
-    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
-    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
-    now = datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
-    return db.save_novels(get_db(), novels, now)
+    return db.save_novels(get_db(), novels, now_jst())
+
+
+def run_embedding():
+    """足りない分をベクトル化し、embedding.embed_novels の結果を返す。
+
+    コマンドと管理画面の両方から使う。Gemini での失敗は例外にせず結果に入れて返し、
+    DB の失敗は例外をそのまま投げる。
+    """
+    # キーが設定に無くても取り込みは止めない。空のまま渡せば、gemini.py が送る前に
+    # 弾くので、ほかの失敗と同じく失敗として数えられる
+    api_key = app.config.get("GEMINI_API_KEY", "")
+    return embedding.embed_novels(get_db(), api_key, now_jst())
 
 
 def format_import_result(result):
@@ -236,6 +265,29 @@ def format_import_result(result):
         f"追加 {result['added']} 件・更新 {result['updated']} 件・"
         f"削除 {result['deleted']} 件"
     )
+
+
+def format_embedding_result(result):
+    return (
+        f"ベクトル化しました（成功 {result['embedded']} 件・"
+        f"失敗 {result['failed']} 件）"
+    )
+
+
+def flash_embedding_result(result):
+    """ベクトル化の結果を、次に開く管理画面に出す。失敗の理由はエラーログに残す。"""
+    flash(format_embedding_result(result))
+    error = result["error"]
+    if error is None:
+        return
+    # 文言には、gemini.py で書いた説明と requests の例外の文言（API の URL を含む）が
+    # 入る。キーは URL ではなくヘッダーで送り、形の正しくないキーは送る前に弾くので、
+    # キーの値は入らない
+    app.logger.error("ベクトル化に失敗しました（%s）", error)
+    if isinstance(error, gemini.GeminiQuotaError):
+        flash(QUOTA_MESSAGE)
+    else:
+        flash(EMBEDDING_ERROR_MESSAGE)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])
@@ -267,7 +319,11 @@ def admin_login():
 @app.route("/admin")
 @auth.login_required
 def admin_home():
-    return render_template("admin.html", status=db.get_import_status(get_db()))
+    return render_template(
+        "admin.html",
+        status=db.get_import_status(get_db()),
+        embedding_status=embedding.get_embedding_status(get_db()),
+    )
 
 
 @app.route("/admin/import", methods=["POST"])
@@ -278,6 +334,17 @@ def admin_import():
     # 結果を画面に直接返すと、再読み込みで取り込みがもう一度走るので、
     # flash で次の画面に渡して管理画面へ移す（PRG）
     flash(f"取り込みました（{format_import_result(result)}）")
+    # 取り込みは保存済み。ベクトル化に失敗しても取り込みは失敗にしない
+    # （失敗した分は「足りない分をベクトル化」でやり直せる）
+    flash_embedding_result(run_embedding())
+    return redirect(url_for("admin_home"))
+
+
+@app.route("/admin/embed", methods=["POST"])
+@auth.login_required
+def admin_embed():
+    # 取り込みと同じく、再読み込みでもう一度走らないよう PRG にする
+    flash_embedding_result(run_embedding())
     return redirect(url_for("admin_home"))
 
 
@@ -288,18 +355,53 @@ def admin_logout():
     return redirect(url_for("index"))
 
 
+def db_error_exception(e):
+    # 例外の詳細（str(e)）には接続先や接続文字列の一部が含まれることがあるので、
+    # 種類名だけを出す
+    return click.ClickException(
+        f"DB への接続または保存に失敗しました（{type(e).__name__}）"
+    )
+
+
+def embed_for_command():
+    """コマンドからベクトル化し、件数を表示して結果を返す。"""
+    try:
+        result = run_embedding()
+    except psycopg2.Error as e:
+        raise db_error_exception(e) from e
+    click.echo(format_embedding_result(result))
+    return result
+
+
+def command_embedding_error(error):
+    # コマンドの出力はほかの学生が読めるエラーログではなく自分の端末に出るので、
+    # 回数制限以外は理由の詳しい文言も出す（キーの値が入らないのは管理画面と同じ）
+    if isinstance(error, gemini.GeminiQuotaError):
+        return COMMAND_QUOTA_MESSAGE
+    return f"ベクトル化に失敗しました（{error}）"
+
+
 @app.cli.command("import-novels")
 def import_novels_command():
-    """なろう API から総合ポイント上位の作品を取り込む。"""
+    """なろう API から総合ポイント上位の作品を取り込み、続けてベクトル化する。"""
     try:
         result = run_import()
     except narou.NarouApiError as e:
         raise click.ClickException(str(e)) from e
     except psycopg2.Error as e:
-        # 例外の詳細（str(e)）には接続先や接続文字列の一部が含まれることがあるので、
-        # 種類名だけを出す
-        raise click.ClickException(
-            f"DB への接続または保存に失敗しました（{type(e).__name__}）"
-        ) from e
+        raise db_error_exception(e) from e
 
     click.echo(format_import_result(result))
+    # 取り込みは保存済みなので、ベクトル化に失敗してもコマンドは成功として終える
+    embedding_result = embed_for_command()
+    if embedding_result["error"] is not None:
+        click.echo(command_embedding_error(embedding_result["error"]), err=True)
+
+
+@app.cli.command("embed-novels")
+def embed_novels_command():
+    """ベクトルが無い・古い作品だけをベクトル化する。"""
+    result = embed_for_command()
+    # ベクトル化だけが仕事なので、失敗があればシェルに伝わるよう終了コードを 1 にする
+    if result["error"] is not None:
+        raise click.ClickException(command_embedding_error(result["error"]))

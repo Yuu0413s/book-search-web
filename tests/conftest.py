@@ -2,7 +2,9 @@ from pathlib import Path
 
 import psycopg2
 import pytest
+import requests
 
+import gemini
 from myapp import app as flask_app
 from tests.helpers import TEST_DB_DSN
 
@@ -32,6 +34,23 @@ def db_conn(test_db):
     conn.close()
 
 
+@pytest.fixture(autouse=True)
+def block_gemini_requests(monkeypatch):
+    """すべてのテストで、Gemini API への通信を必ず失敗させる。
+
+    取り込みのテストもベクトル化まで走るので、gemini.embed_texts の差し替えを
+    忘れても、本物の API を呼んで無料枠を使ったり、キーを送ったりしないようにする。
+    gemini.requests は requests そのものなので、requests.post 全体が対象になる
+    （このアプリで post を使うのは gemini.py だけ）。通信を確かめるテストは、
+    この後に自分で差し替え直す
+    """
+
+    def refuse(*args, **kwargs):
+        raise requests.ConnectionError("テストでは実際の Gemini API を呼ばない")
+
+    monkeypatch.setattr(gemini.requests, "post", refuse)
+
+
 @pytest.fixture
 def app(test_db):
     # ローカルの instance/config.py の値に左右されないよう、テストに必要な設定は
@@ -40,6 +59,7 @@ def app(test_db):
         TESTING=True,
         DB_DSN=test_db,
         SECRET_KEY="test-secret-key",
+        GEMINI_API_KEY="test-gemini-key",
         SESSION_COOKIE_SECURE=False,
         # テストクライアントは Cookie の Path を守るので、"/s2422016/" だと
         # /admin/... に session が届かない
