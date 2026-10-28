@@ -4,12 +4,35 @@
 from datetime import datetime
 
 import psycopg2.extras
+import requests
 from werkzeug.security import generate_password_hash
 
 # compose.yaml の PostgreSQL 内にあるテスト専用 DB（開発用とは別）
 TEST_DB_DSN = (
     "host=localhost port=5433 dbname=narou_search_test user=narou password=narou"
 )
+
+# novel_embeddings.model に入る値（gemini.EMBEDDING_ID）。テストは仕様書なので、
+# 実装の定数を参照せずに書く
+EMBEDDING_ID = "gemini-embedding-2:768"
+
+
+class FakeResponse:
+    """requests.get / requests.post の戻り値の代わり。"""
+
+    def __init__(self, json_data=None, status_code=200, invalid_json=False):
+        self.json_data = json_data
+        self.status_code = status_code
+        self.invalid_json = invalid_json
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Error")
+
+    def json(self):
+        if self.invalid_json:
+            raise requests.JSONDecodeError("Expecting value", "<html>", 0)
+        return self.json_data
 
 
 def make_raw_novel(ncode="N0001AA", **overrides):
@@ -108,10 +131,9 @@ def novel_id_of(conn, ncode):
         return cur.fetchone()[0]
 
 
-def insert_embedding(
-    conn, novel_id, embedding, model="gemini-embedding-2", source_hash="hash"
-):
+def insert_embedding(conn, novel_id, embedding, model=EMBEDDING_ID, source_hash="hash"):
     """テストの前提となるベクトルを、save_embeddings を通さずに直接 DB に入れる。"""
+    # 前提として入れるベクトルの更新日時を見るテストは無いので、固定の値でよい
     with conn, conn.cursor() as cur:
         cur.execute(
             """

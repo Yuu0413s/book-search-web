@@ -11,9 +11,9 @@ def document_text(novel):
     """作品をベクトル化するときの文章。
 
     gemini-embedding-2 は用途を引数で指定できず、文章の先頭の書き方で伝える
-    （docs/design/narou-search.md の「11.11」）。
+    （書き方は docs/design/narou-search.md の「11.7」、理由は「11.11」）。
     """
-    # タイトルが空のときの書き方も、Gemini の説明に合わせる
+    # タイトルが空のときは、Gemini の説明に合わせて none と書く
     title = novel["title"] or "none"
     text = f"title: {title} | text: {novel['story']}"
     if novel["keyword"]:
@@ -34,8 +34,9 @@ def source_hash(text):
 def select_novels_to_embed(targets, model):
     """ベクトル化が必要な作品だけを、元の順番のまま返す。
 
-    targets は db.fetch_embedding_targets の戻り値。ベクトルが無い作品、
-    別のモデルで変換した作品、変換した後に内容が変わった作品が対象になる。
+    targets は db.fetch_embedding_targets の戻り値。model は gemini.EMBEDDING_ID。
+    ベクトルが無い作品、別のモデル・次元数で変換した作品、変換した後に内容が
+    変わった作品が対象になる。
     """
     return [
         target

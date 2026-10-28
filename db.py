@@ -227,9 +227,11 @@ def save_embeddings(conn, embeddings, now):
 
     saved_count = 0
     with conn, conn.cursor() as cur:
-        # 作品の一覧を取ってから保存するまでの間に、取り込みで作品が消されることが
-        # ある。実行中の取り込み（save_novels のロック）が終わるのを待ち、この
-        # トランザクションの間は作品が消されないようにする。検索の SELECT は待たせない
+        # 作品の一覧を取った後に取り込みで消えた作品は、UPSERT_EMBEDDING_SQL の
+        # WHERE EXISTS で飛ばす。ただ、EXISTS を確かめてから INSERT するまでの間に
+        # 消されると外部キー違反になるので、実行中の取り込み（save_novels のロック）
+        # が終わるのを待ち、このトランザクションの間は消されないようにする。
+        # 検索の SELECT は待たせない
         cur.execute("LOCK TABLE novels IN SHARE MODE;")
 
         # 100 件程度なので、save_novels と同じく 1 件ずつ実行する
@@ -241,7 +243,9 @@ def save_embeddings(conn, embeddings, now):
 
 
 def fetch_embeddings(conn, model):
-    """model で変換したベクトルを、(作品の id, ベクトル) のリストで返す（id 順）。"""
+    """model（gemini.EMBEDDING_ID）で変換したベクトルを、
+    (作品の id, ベクトル) のリストで返す（id 順）。
+    """
     with conn, conn.cursor() as cur:
         cur.execute(
             "SELECT novel_id, embedding FROM novel_embeddings"

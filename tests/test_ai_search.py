@@ -3,8 +3,7 @@ import math
 import pytest
 
 import ai_search
-
-MODEL = "gemini-embedding-2"
+from tests.helpers import EMBEDDING_ID
 
 
 def make_target(novel_id=1, **overrides):
@@ -55,8 +54,10 @@ def test_検索の文章_決まった書き方で包む():
 
 
 def test_ハッシュ_UTF8のSHA256を16進数64文字で返す():
-    assert ai_search.source_hash("abc") == (
-        "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+    # ASCII の文字だけだと、ほかの文字コードでも同じバイト列になり区別できないので、
+    # 日本語で確かめる（Shift_JIS なら 65468d6b… になる）
+    assert ai_search.source_hash("小説") == (
+        "9432dc178d9798751a2cc9be20705c5d284c1eb206b4381a5d2dd227bb67424b"
     )
 
 
@@ -73,7 +74,7 @@ def test_ハッシュ_同じ文章なら同じ値_違えば違う値():
 def embedded_target(novel_id, **overrides):
     """今のモデル・今の内容で変換済みの作品。"""
     target = make_target(novel_id, **overrides)
-    target["embedding_model"] = MODEL
+    target["embedding_model"] = EMBEDDING_ID
     target["embedding_hash"] = ai_search.source_hash(ai_search.document_text(target))
     return target
 
@@ -81,20 +82,20 @@ def embedded_target(novel_id, **overrides):
 def test_選び出し_ベクトルが無い作品は変換が必要():
     targets = [make_target(1)]
 
-    assert ai_search.select_novels_to_embed(targets, MODEL) == targets
+    assert ai_search.select_novels_to_embed(targets, EMBEDDING_ID) == targets
 
 
 def test_選び出し_モデルも内容も同じなら変換しない():
     targets = [embedded_target(1)]
 
-    assert ai_search.select_novels_to_embed(targets, MODEL) == []
+    assert ai_search.select_novels_to_embed(targets, EMBEDDING_ID) == []
 
 
-def test_選び出し_モデルが違えば変換が必要():
+def test_選び出し_モデルか次元数が違えば変換が必要():
     target = embedded_target(1)
-    target["embedding_model"] = "old-model"
+    target["embedding_model"] = "gemini-embedding-2:3072"
 
-    assert ai_search.select_novels_to_embed([target], MODEL) == [target]
+    assert ai_search.select_novels_to_embed([target], EMBEDDING_ID) == [target]
 
 
 @pytest.mark.parametrize("column", ["title", "story", "keyword"])
@@ -102,7 +103,7 @@ def test_選び出し_タイトル_あらすじ_タグのどれかが変われ�
     target = embedded_target(1)
     target[column] = "書き換えた内容"
 
-    assert ai_search.select_novels_to_embed([target], MODEL) == [target]
+    assert ai_search.select_novels_to_embed([target], EMBEDDING_ID) == [target]
 
 
 def test_選び出し_混ざっていても必要な作品だけを元の順番で返す():
@@ -110,13 +111,13 @@ def test_選び出し_混ざっていても必要な作品だけを元の順番�
     changed["story"] = "書き換えたあらすじ"
     targets = [make_target(1), changed, embedded_target(3), make_target(4)]
 
-    result = ai_search.select_novels_to_embed(targets, MODEL)
+    result = ai_search.select_novels_to_embed(targets, EMBEDDING_ID)
 
     assert [target["id"] for target in result] == [1, 2, 4]
 
 
 def test_選び出し_作品が無ければ空のリスト():
-    assert ai_search.select_novels_to_embed([], MODEL) == []
+    assert ai_search.select_novels_to_embed([], EMBEDDING_ID) == []
 
 
 # --- 類似度 ---

@@ -30,7 +30,8 @@ CREATE TABLE admins (
 CREATE TABLE novel_embeddings (
     novel_id    INTEGER   PRIMARY KEY REFERENCES novels (id) ON DELETE CASCADE,
     embedding   REAL[]    NOT NULL,
-    -- 変換に使ったモデル名。モデルを変えたときに、作り直す対象を見分ける
+    -- 変換に使ったモデル名と次元数（例: gemini-embedding-2:768）。
+    -- モデルや次元数を変えたときに、作り直す対象を見分ける
     model       TEXT      NOT NULL,
     -- 変換した文章のハッシュ。作品の内容が変わったかを見分ける
     source_hash TEXT      NOT NULL,

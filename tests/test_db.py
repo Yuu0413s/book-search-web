@@ -5,6 +5,7 @@ import pytest
 
 import db
 from tests.helpers import (
+    EMBEDDING_ID,
     add_novel,
     fetch_admins_by_username,
     fetch_embeddings_by_novel_id,
@@ -328,15 +329,13 @@ def test_取り込み状況_作品の件数と最も新しい取得日時を返�
 
 # --- AI 検索のベクトル ---
 
-MODEL = "gemini-embedding-2"
-
 
 def make_embedding(novel_id, embedding=(0.1, 0.2, 0.3), **overrides):
     """save_embeddings に渡す 1 件分。"""
     item = {
         "novel_id": novel_id,
         "embedding": list(embedding),
-        "model": MODEL,
+        "model": EMBEDDING_ID,
         "source_hash": "hash",
     }
     item.update(overrides)
@@ -358,7 +357,7 @@ def test_変換対象_ベクトルがある作品はモデル名とハッシュ�
             "title": "一作目",
             "story": "あらすじ1",
             "keyword": "タグ",
-            "embedding_model": MODEL,
+            "embedding_model": EMBEDDING_ID,
             "embedding_hash": "abc",
         },
         {
@@ -373,13 +372,23 @@ def test_変換対象_ベクトルがある作品はモデル名とハッシュ�
 
 
 def test_変換対象_作品のidの順に返す(db_conn):
-    for ncode in ["N0003CC", "N0001AA", "N0002BB"]:
-        add_novel(db_conn, ncode)
+    # 普通に入れると id は入れた順に振られ、ORDER BY が無くても id 順に返って
+    # しまう。id を指定して大きい順に続けて入れ、ORDER BY が無ければ崩れるようにする
+    with db_conn, db_conn.cursor() as cur:
+        for novel_id in [900003, 900002, 900001]:
+            cur.execute(
+                """
+                INSERT INTO novels (id, ncode, title, writer, story, biggenre,
+                                    genre, global_point, fav_novel_cnt,
+                                    general_lastup, fetched_at)
+                VALUES (%s, %s, '作品', '作者', 'あらすじ', 2, 201, 0, 0, %s, %s);
+                """,
+                (novel_id, f"N{novel_id}", NOW, NOW),
+            )
 
     ids = [target["id"] for target in db.fetch_embedding_targets(db_conn)]
 
-    assert ids == sorted(ids)
-    assert len(ids) == 3
+    assert ids == [900001, 900002, 900003]
 
 
 def test_変換対象_作品が無ければ空のリスト(db_conn):
@@ -400,7 +409,7 @@ def test_ベクトル保存_保存でき_ほぼ同じ値で読み出せる(db_co
     row = fetch_embeddings_by_novel_id(db_conn)[novel_id]
     # REAL（4 バイトの小数）で保存するので、丸めの誤差がある
     assert row["embedding"] == pytest.approx([0.1, -0.2, 0.3], rel=1e-6)
-    assert row["model"] == MODEL
+    assert row["model"] == EMBEDDING_ID
     assert row["source_hash"] == "abc"
     assert row["updated_at"] == NOW
 
@@ -408,7 +417,7 @@ def test_ベクトル保存_保存でき_ほぼ同じ値で読み出せる(db_co
 def test_ベクトル保存_同じ作品なら上書きされ行は増えない(db_conn):
     add_novel(db_conn, "N0001AA")
     novel_id = novel_id_of(db_conn, "N0001AA")
-    insert_embedding(db_conn, novel_id, [0.1, 0.2], model="old-model")
+    insert_embedding(db_conn, novel_id, [0.1, 0.2], model="gemini-embedding-2:3072")
     later = NOW + timedelta(days=1)
 
     saved = db.save_embeddings(
@@ -421,7 +430,7 @@ def test_ベクトル保存_同じ作品なら上書きされ行は増えない(
     rows = fetch_embeddings_by_novel_id(db_conn)
     assert list(rows) == [novel_id]
     assert rows[novel_id]["embedding"] == pytest.approx([0.5, 0.6], rel=1e-6)
-    assert rows[novel_id]["model"] == MODEL
+    assert rows[novel_id]["model"] == EMBEDDING_ID
     assert rows[novel_id]["source_hash"] == "new-hash"
     assert rows[novel_id]["updated_at"] == later
 
@@ -475,10 +484,10 @@ def test_ベクトル読み出し_指定したモデルのものだけを作品�
     )
     # わざと id の逆順に入れる
     insert_embedding(db_conn, third_id, [0.3, 0.3])
-    insert_embedding(db_conn, second_id, [0.2, 0.2], model="old-model")
+    insert_embedding(db_conn, second_id, [0.2, 0.2], model="gemini-embedding-2:3072")
     insert_embedding(db_conn, first_id, [0.1, 0.1])
 
-    result = db.fetch_embeddings(db_conn, MODEL)
+    result = db.fetch_embeddings(db_conn, EMBEDDING_ID)
 
     assert [novel_id for novel_id, _ in result] == [first_id, third_id]
     assert result[0][1] == pytest.approx([0.1, 0.1], rel=1e-6)
@@ -486,7 +495,7 @@ def test_ベクトル読み出し_指定したモデルのものだけを作品�
 
 
 def test_ベクトル読み出し_無ければ空のリスト(db_conn):
-    assert db.fetch_embeddings(db_conn, MODEL) == []
+    assert db.fetch_embeddings(db_conn, EMBEDDING_ID) == []
 
 
 def test_作品を消すとベクトルも消える(db_conn):

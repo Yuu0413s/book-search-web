@@ -4,12 +4,16 @@ google-genai はサーバに無いので、requests で直接呼ぶ。
 """
 
 import math
+import re
 
 import requests
 
 MODEL = "gemini-embedding-2"
 # 3072 次元が既定だが、DB の容量と類似度の計算時間を抑えるため 768 次元にする
 DIMENSIONS = 768
+# novel_embeddings.model に保存する名前。次元数を変えたときも、古いベクトルを
+# 作り直す対象として見分けられるよう、モデル名だけでなく次元数も含める
+EMBEDDING_ID = f"{MODEL}:{DIMENSIONS}"
 # batchEmbedContents に 1 回で送れる件数の上限
 MAX_BATCH_SIZE = 100
 API_BASE_URL = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}"
@@ -19,6 +23,9 @@ BATCH_EMBED_URL = f"{API_BASE_URL}:batchEmbedContents"
 EMBED_TIMEOUT_SECONDS = 10
 BATCH_EMBED_TIMEOUT_SECONDS = 30
 DIMENSION_CONFIG = {"outputDimensionality": DIMENSIONS}
+# Google の API キーに使われる文字。これ以外（空白・改行など）が混ざっていると、
+# requests や http.client が例外の文言にキーの値をそのまま入れてしまう
+API_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
 
 class GeminiApiError(Exception):
@@ -41,9 +48,8 @@ def embed_text(text, api_key):
         api_key,
         EMBED_TIMEOUT_SECONDS,
     )
-    if not isinstance(data, dict):
-        raise GeminiApiError("Gemini API の応答が想定した形式（辞書）ではありません")
-    return _require_vector(data.get("embedding"))
+    embedding = data.get("embedding") if isinstance(data, dict) else None
+    return _require_vector(embedding)
 
 
 def embed_texts(texts, api_key):
@@ -89,15 +95,33 @@ def _content(text):
 
 
 def _post(url, body, api_key, timeout):
+    # 文言にキーの値を入れない（ほかの学生も読めるエラーログに出るため）
+    if not isinstance(api_key, str) or not API_KEY_PATTERN.fullmatch(api_key):
+        raise GeminiApiError(
+            "GEMINI_API_KEY が空か、形式が正しくありません"
+            "（前後の空白・改行が混ざっていないか確認してください）"
+        )
     try:
         # キーは URL ではなくヘッダーで渡す。requests の例外の文言には URL が
-        # そのまま入り、ほかの学生も読めるエラーログに出てしまうため
+        # そのまま入り、ほかの学生も読めるエラーログに出てしまうため。
+        # requests は転送先にも独自のヘッダーを送るので、転送には従わない
         response = requests.post(
-            url, headers={"x-goog-api-key": api_key}, json=body, timeout=timeout
+            url,
+            headers={"x-goog-api-key": api_key},
+            json=body,
+            timeout=timeout,
+            allow_redirects=False,
         )
+        # 以下の 2 つの例外は RequestException の一種ではないので、下の except には
+        # 捕まらず、そのまま呼ぶ側に届く
         # 回数制限は、時間を置けば直る。呼ぶ側が残りの変換を止められるよう分ける
         if response.status_code == 429:
             raise GeminiQuotaError("Gemini API の回数制限に達しました")
+        # raise_for_status は 3xx では例外を投げないので、転送はここで失敗にする
+        if 300 <= response.status_code < 400:
+            raise GeminiApiError(
+                f"Gemini API が想定外の転送を返しました（{response.status_code}）"
+            )
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:

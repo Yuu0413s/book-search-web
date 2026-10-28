@@ -4,25 +4,7 @@ import pytest
 import requests
 
 import narou
-from tests.helpers import make_raw_novel
-
-
-class FakeResponse:
-    """requests.get の戻り値の代わり。"""
-
-    def __init__(self, json_data=None, status_code=200, invalid_json=False):
-        self.json_data = json_data
-        self.status_code = status_code
-        self.invalid_json = invalid_json
-
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise requests.HTTPError(f"{self.status_code} Error")
-
-    def json(self):
-        if self.invalid_json:
-            raise requests.JSONDecodeError("Expecting value", "<html>", 0)
-        return self.json_data
+from tests.helpers import FakeResponse, make_raw_novel
 
 
 def fake_get_returning(response, calls=None):
