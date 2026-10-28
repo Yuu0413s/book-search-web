@@ -43,53 +43,6 @@ Gemini 埋め込み API ──(作品をベクトルに)──┘
 
 ライブラリのバージョンは、授業サーバにインストール済みのものに合わせて `requirements.txt` で固定しています。
 
-## セキュリティで気をつけたこと
-
-- 利用者の入力はすべてプレースホルダで SQL に渡す
-- 管理者のパスワードはソルトつきのハッシュ（scrypt）で保存し、登録画面は作らない（`create_admin.py` で作る）
-- すべての POST で CSRF トークンを確かめ、Cookie には SameSite=Lax を付ける。サーバではサイト全体を https に切り替える
-- ログには秘密の値（API キー、DB の接続情報）を出さない。授業サーバのエラーログはほかの学生も読めるため
-
-## ローカルで動かす
-
-必要なもの: Python 3.12、Docker、[uv](https://docs.astral.sh/uv/)
-
-```sh
-# 1. DB を起動する（ポート 5433。初回は開発用とテスト用の DB が作られる）
-docker compose up -d
-
-# 2. 仮想環境を作って依存関係を入れる
-uv venv --python 3.12
-uv pip install -r requirements-dev.txt
-
-# 3. 開発用 DB にテーブルを作る
-docker compose exec -T db psql -U narou -d narou_search_dev < schema.sql
-
-# 4. 設定ファイルを作り、値を埋める（DB_DSN の例は中に書いてある）
-mkdir -p instance
-cp config.example.py instance/config.py
-
-# 5. 管理者を作り、作品を取り込む（GEMINI_API_KEY があれば続けてベクトル化もする）
-.venv/bin/python create_admin.py
-.venv/bin/flask --app myapp import-novels
-
-# 6. 開発サーバーを起動する → http://127.0.0.1:5000/
-.venv/bin/flask --app myapp run --debug
-```
-
-`instance/config.py` には秘密の値が入るので、Git には入れません（`.gitignore` 済み）。
-AI 検索を使うには、[Google AI Studio](https://aistudio.google.com/) で発行した API キーを `GEMINI_API_KEY` に設定します。無料枠では、送った文章が Google のサービス改善に使われます。
-
-### よく使うコマンド
-
-| コマンド | 用途 |
-|---|---|
-| `.venv/bin/pytest` | テストを実行する（テスト用 DB のテーブルは自動で作り直す。Gemini への通信は常に止めている） |
-| `.venv/bin/ruff check .` / `.venv/bin/ruff format .` | Lint / 整形 |
-| `.venv/bin/flask --app myapp import-novels` | なろう API から取り込み、続けてベクトル化する |
-| `.venv/bin/flask --app myapp embed-novels` | ベクトルが無い・古い作品だけをベクトル化する |
-| `./deploy.sh` | 授業サーバにアップロードして再読み込みする |
-
 ## フォルダ構成
 
 ```
@@ -109,8 +62,6 @@ mid_assign/
 ├── tests/              # pytest
 └── docs/design/        # 設計メモ
 ```
-
-設計の詳しい判断（なぜこうしたか）は [docs/design/narou-search.md](docs/design/narou-search.md) にまとめています。
 
 ## データの出典
 
