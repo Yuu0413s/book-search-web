@@ -479,7 +479,7 @@ Issue の代わりに 4 つの作業単位に分け、単位ごとに「作る �
 mid_assign/
 ├── gemini.py                 新規  Gemini 埋め込み API の呼び出し（narou.py と同じく、外部 API ごとに 1 ファイル）
 ├── ai_search.py              新規  ベクトル化する文章の組み立て・ハッシュ・類似度の計算・上位の選び出し（API も DB も使わない）
-├── db.py                     追記  ベクトルの保存・読み出し、変換が必要な作品の取得、ベクトル化の状況
+├── db.py                     追記  ベクトルの保存・読み出し、変換が必要かを判定するための作品の一覧
 ├── myapp.py                  追記  検索画面の AI モード、似ている作品のルート、/admin/embed、取り込みにベクトル化を追加
 ├── schema.sql                追記  novel_embeddings テーブル
 ├── config.example.py         追記  GEMINI_API_KEY
@@ -499,6 +499,7 @@ mid_assign/
     └── test_cli.py           追記  取り込みコマンドのベクトル化
 ```
 
+- ベクトル化の状況（変換済み・未変換の件数）は `db.py` に関数を置かず、単位6 で `db.fetch_embedding_targets` と `ai_search.select_novels_to_embed` から計算する（「変換が必要か」の判定を 1 か所にまとめるため）
 - API の呼び出し（`gemini.py`）と計算（`ai_search.py`）を分けるのは、今の `narou.py`（外部 API）と `db.py`（SQL）と同じく役割ごとに分けるため。計算のテストに API の差し替えが要らない
 
 ### 11.9 実装手順
@@ -513,7 +514,7 @@ mid_assign/
   ├── schema.sql に novel_embeddings を追加
   ├── gemini.py（通信は差し替えてテストする）
   ├── ai_search.py
-  └── db.py（保存・読み出し・変換が必要な作品・状況）
+  └── db.py（保存・読み出し・変換が必要かを判定するための作品の一覧）
         ↓
 単位6  取り込みとベクトル化（BE・TDD）
   ├── 取り込み（管理画面・コマンド）のあとにベクトル化を追加

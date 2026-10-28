@@ -7,9 +7,12 @@ import db
 from tests.helpers import (
     add_novel,
     fetch_admins_by_username,
+    fetch_embeddings_by_novel_id,
     fetch_novels_by_ncode,
+    insert_embedding,
     insert_novel,
     make_novel,
+    novel_id_of,
 )
 
 NOW = datetime(2026, 10, 27, 12, 0, 0)
@@ -321,3 +324,191 @@ def test_取り込み状況_作品の件数と最も新しい取得日時を返�
         "novel_count": 3,
         "last_fetched_at": NOW,
     }
+
+
+# --- AI 検索のベクトル ---
+
+MODEL = "gemini-embedding-2"
+
+
+def make_embedding(novel_id, embedding=(0.1, 0.2, 0.3), **overrides):
+    """save_embeddings に渡す 1 件分。"""
+    item = {
+        "novel_id": novel_id,
+        "embedding": list(embedding),
+        "model": MODEL,
+        "source_hash": "hash",
+    }
+    item.update(overrides)
+    return item
+
+
+def test_変換対象_ベクトルがある作品はモデル名とハッシュ付きで_無い作品はNoneで返す(
+    db_conn,
+):
+    add_novel(db_conn, "N0001AA", title="一作目", story="あらすじ1", keyword="タグ")
+    add_novel(db_conn, "N0002BB", title="二作目", story="あらすじ2", keyword=None)
+    first_id = novel_id_of(db_conn, "N0001AA")
+    second_id = novel_id_of(db_conn, "N0002BB")
+    insert_embedding(db_conn, first_id, [0.1, 0.2], source_hash="abc")
+
+    assert db.fetch_embedding_targets(db_conn) == [
+        {
+            "id": first_id,
+            "title": "一作目",
+            "story": "あらすじ1",
+            "keyword": "タグ",
+            "embedding_model": MODEL,
+            "embedding_hash": "abc",
+        },
+        {
+            "id": second_id,
+            "title": "二作目",
+            "story": "あらすじ2",
+            "keyword": None,
+            "embedding_model": None,
+            "embedding_hash": None,
+        },
+    ]
+
+
+def test_変換対象_作品のidの順に返す(db_conn):
+    for ncode in ["N0003CC", "N0001AA", "N0002BB"]:
+        add_novel(db_conn, ncode)
+
+    ids = [target["id"] for target in db.fetch_embedding_targets(db_conn)]
+
+    assert ids == sorted(ids)
+    assert len(ids) == 3
+
+
+def test_変換対象_作品が無ければ空のリスト(db_conn):
+    assert db.fetch_embedding_targets(db_conn) == []
+
+
+def test_ベクトル保存_保存でき_ほぼ同じ値で読み出せる(db_conn):
+    add_novel(db_conn, "N0001AA")
+    novel_id = novel_id_of(db_conn, "N0001AA")
+
+    saved = db.save_embeddings(
+        db_conn,
+        [make_embedding(novel_id, [0.1, -0.2, 0.3], source_hash="abc")],
+        NOW,
+    )
+
+    assert saved == 1
+    row = fetch_embeddings_by_novel_id(db_conn)[novel_id]
+    # REAL（4 バイトの小数）で保存するので、丸めの誤差がある
+    assert row["embedding"] == pytest.approx([0.1, -0.2, 0.3], rel=1e-6)
+    assert row["model"] == MODEL
+    assert row["source_hash"] == "abc"
+    assert row["updated_at"] == NOW
+
+
+def test_ベクトル保存_同じ作品なら上書きされ行は増えない(db_conn):
+    add_novel(db_conn, "N0001AA")
+    novel_id = novel_id_of(db_conn, "N0001AA")
+    insert_embedding(db_conn, novel_id, [0.1, 0.2], model="old-model")
+    later = NOW + timedelta(days=1)
+
+    saved = db.save_embeddings(
+        db_conn,
+        [make_embedding(novel_id, [0.5, 0.6], source_hash="new-hash")],
+        later,
+    )
+
+    assert saved == 1
+    rows = fetch_embeddings_by_novel_id(db_conn)
+    assert list(rows) == [novel_id]
+    assert rows[novel_id]["embedding"] == pytest.approx([0.5, 0.6], rel=1e-6)
+    assert rows[novel_id]["model"] == MODEL
+    assert rows[novel_id]["source_hash"] == "new-hash"
+    assert rows[novel_id]["updated_at"] == later
+
+
+def test_ベクトル保存_すでに消えた作品は飛ばし_件数に数えない(db_conn):
+    # 作品の一覧を取ってから保存するまでの間に、取り込みで作品が消された場合
+    add_novel(db_conn, "N0001AA")
+    add_novel(db_conn, "N0002BB")
+    kept_id = novel_id_of(db_conn, "N0001AA")
+    deleted_id = novel_id_of(db_conn, "N0002BB")
+    with db_conn, db_conn.cursor() as cur:
+        cur.execute("DELETE FROM novels WHERE id = %s;", (deleted_id,))
+
+    saved = db.save_embeddings(
+        db_conn, [make_embedding(kept_id), make_embedding(deleted_id)], NOW
+    )
+
+    assert saved == 1
+    assert list(fetch_embeddings_by_novel_id(db_conn)) == [kept_id]
+
+
+def test_ベクトル保存_同じ作品が2回あればValueErrorで何も保存しない(db_conn):
+    add_novel(db_conn, "N0001AA")
+    add_novel(db_conn, "N0002BB")
+    first_id = novel_id_of(db_conn, "N0001AA")
+    second_id = novel_id_of(db_conn, "N0002BB")
+
+    with pytest.raises(ValueError):
+        db.save_embeddings(
+            db_conn,
+            [
+                make_embedding(first_id),
+                make_embedding(second_id),
+                make_embedding(first_id, [0.9, 0.9, 0.9]),
+            ],
+            NOW,
+        )
+
+    assert fetch_embeddings_by_novel_id(db_conn) == {}
+
+
+def test_ベクトル保存_空のリストなら0件(db_conn):
+    assert db.save_embeddings(db_conn, [], NOW) == 0
+
+
+def test_ベクトル読み出し_指定したモデルのものだけを作品のid順に返す(db_conn):
+    for ncode in ["N0001AA", "N0002BB", "N0003CC"]:
+        add_novel(db_conn, ncode)
+    first_id, second_id, third_id = (
+        novel_id_of(db_conn, ncode) for ncode in ["N0001AA", "N0002BB", "N0003CC"]
+    )
+    # わざと id の逆順に入れる
+    insert_embedding(db_conn, third_id, [0.3, 0.3])
+    insert_embedding(db_conn, second_id, [0.2, 0.2], model="old-model")
+    insert_embedding(db_conn, first_id, [0.1, 0.1])
+
+    result = db.fetch_embeddings(db_conn, MODEL)
+
+    assert [novel_id for novel_id, _ in result] == [first_id, third_id]
+    assert result[0][1] == pytest.approx([0.1, 0.1], rel=1e-6)
+    assert result[1][1] == pytest.approx([0.3, 0.3], rel=1e-6)
+
+
+def test_ベクトル読み出し_無ければ空のリスト(db_conn):
+    assert db.fetch_embeddings(db_conn, MODEL) == []
+
+
+def test_作品を消すとベクトルも消える(db_conn):
+    add_novel(db_conn, "N0001AA")
+    novel_id = novel_id_of(db_conn, "N0001AA")
+    insert_embedding(db_conn, novel_id, [0.1, 0.2])
+
+    with db_conn, db_conn.cursor() as cur:
+        cur.execute("DELETE FROM novels WHERE id = %s;", (novel_id,))
+
+    assert fetch_embeddings_by_novel_id(db_conn) == {}
+
+
+def test_取り込みで14日を過ぎた作品が消えると_そのベクトルも消える(db_conn):
+    insert_novel(db_conn, "N0001AA", fetched_at=NOW - timedelta(days=15))
+    insert_novel(db_conn, "N0002BB", fetched_at=NOW - timedelta(days=15))
+    stale_id = novel_id_of(db_conn, "N0001AA")
+    kept_id = novel_id_of(db_conn, "N0002BB")
+    insert_embedding(db_conn, stale_id, [0.1, 0.2])
+    insert_embedding(db_conn, kept_id, [0.3, 0.4])
+
+    # N0002BB だけ今回も取得できたので残り、N0001AA は消える
+    db.save_novels(db_conn, [make_novel("N0002BB")], NOW)
+
+    assert list(fetch_embeddings_by_novel_id(db_conn)) == [kept_id]

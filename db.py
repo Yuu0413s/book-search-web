@@ -175,3 +175,77 @@ def get_import_status(conn):
             " FROM novels;"
         )
         return dict(cur.fetchone())
+
+
+def fetch_embedding_targets(conn):
+    """ベクトル化が必要かを判定するための、全作品の一覧（id 順）。
+
+    各作品の id・title・story・keyword と、保存済みのベクトルのモデル名
+    （embedding_model）・ハッシュ（embedding_hash）を返す。
+    ベクトルが無い作品は、モデル名・ハッシュが None になる。
+    """
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT n.id, n.title, n.story, n.keyword,
+                   e.model AS embedding_model, e.source_hash AS embedding_hash
+            FROM novels AS n
+            LEFT JOIN novel_embeddings AS e ON e.novel_id = n.id
+            ORDER BY n.id;
+            """
+        )
+        return cur.fetchall()
+
+
+# 作品が消えていたら保存しない。WHERE EXISTS が偽なら SELECT が 0 行になり、
+# INSERT も行われない
+UPSERT_EMBEDDING_SQL = """
+INSERT INTO novel_embeddings (novel_id, embedding, model, source_hash, updated_at)
+SELECT %(novel_id)s, %(embedding)s, %(model)s, %(source_hash)s, %(updated_at)s
+WHERE EXISTS (SELECT 1 FROM novels WHERE id = %(novel_id)s)
+ON CONFLICT (novel_id) DO UPDATE SET
+    embedding   = EXCLUDED.embedding,
+    model       = EXCLUDED.model,
+    source_hash = EXCLUDED.source_hash,
+    updated_at  = EXCLUDED.updated_at;
+"""
+
+
+def save_embeddings(conn, embeddings, now):
+    """作品のベクトルを保存し（同じ作品は上書き）、保存した件数を返す。
+
+    embeddings は {"novel_id", "embedding", "model", "source_hash"} の dict のリスト。
+    すでに消えた作品は保存せずに飛ばし、件数に数えない。
+    同じ novel_id が 2 回あると、後のもので上書きされて件数が実際より多くなるので、
+    何も保存せずに ValueError を投げる。
+    すべて 1 つのトランザクションで行う。
+    now は保存時刻で、タイムゾーン無しの JST（カラムが TIMESTAMP のため）。
+    """
+    novel_ids = [item["novel_id"] for item in embeddings]
+    if len(set(novel_ids)) != len(novel_ids):
+        raise ValueError("同じ作品のベクトルが 2 回以上含まれています")
+
+    saved_count = 0
+    with conn, conn.cursor() as cur:
+        # 作品の一覧を取ってから保存するまでの間に、取り込みで作品が消されることが
+        # ある。実行中の取り込み（save_novels のロック）が終わるのを待ち、この
+        # トランザクションの間は作品が消されないようにする。検索の SELECT は待たせない
+        cur.execute("LOCK TABLE novels IN SHARE MODE;")
+
+        # 100 件程度なので、save_novels と同じく 1 件ずつ実行する
+        for item in embeddings:
+            cur.execute(UPSERT_EMBEDDING_SQL, {**item, "updated_at": now})
+            saved_count += cur.rowcount
+
+    return saved_count
+
+
+def fetch_embeddings(conn, model):
+    """model で変換したベクトルを、(作品の id, ベクトル) のリストで返す（id 順）。"""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT novel_id, embedding FROM novel_embeddings"
+            " WHERE model = %s ORDER BY novel_id;",
+            (model,),
+        )
+        return cur.fetchall()

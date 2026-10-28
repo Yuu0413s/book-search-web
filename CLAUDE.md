@@ -18,6 +18,8 @@ mid_assign/                  → サーバの ~/myapp/
 ├── flask.wsgi               # mod_wsgi の入口
 ├── myapp.py                 # Flask 本体（ルートと CLI コマンド。DB 接続もここで作る）
 ├── narou.py                 # なろう API からの取得と変換
+├── gemini.py                # Gemini 埋め込み API の呼び出し（文章 → ベクトル）
+├── ai_search.py             # AI 検索の計算（文章の組み立て・ハッシュ・類似度・上位の選び出し）
 ├── db.py                    # SQL（接続は呼ぶ側から受け取る）
 ├── auth.py                  # ログイン必須チェック・CSRF トークン
 ├── genres.py                # ジャンルのコード → 名前の辞書

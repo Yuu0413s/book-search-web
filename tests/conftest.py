@@ -14,7 +14,7 @@ def test_db():
     """テスト開始時に 1 回だけ、テスト用 DB のテーブルを作り直す。"""
     conn = psycopg2.connect(TEST_DB_DSN)
     with conn, conn.cursor() as cur:
-        cur.execute("DROP TABLE IF EXISTS novels, admins;")
+        cur.execute("DROP TABLE IF EXISTS novel_embeddings, novels, admins;")
         cur.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
     conn.close()
     return TEST_DB_DSN
@@ -25,6 +25,7 @@ def db_conn(test_db):
     """テスト用 DB への接続。各テストの前に行を全部消して、空の状態から始める。"""
     conn = psycopg2.connect(test_db)
     with conn, conn.cursor() as cur:
+        cur.execute("DELETE FROM novel_embeddings;")
         cur.execute("DELETE FROM novels;")
         cur.execute("DELETE FROM admins;")
     yield conn

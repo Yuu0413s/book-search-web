@@ -99,3 +99,32 @@ def fetch_admins_by_username(conn):
     with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM admins;")
         return {row["username"]: row for row in cur.fetchall()}
+
+
+def novel_id_of(conn, ncode):
+    """作品の id を返す（ベクトルは ncode ではなく id で結び付けるため）。"""
+    with conn, conn.cursor() as cur:
+        cur.execute("SELECT id FROM novels WHERE ncode = %s;", (ncode,))
+        return cur.fetchone()[0]
+
+
+def insert_embedding(
+    conn, novel_id, embedding, model="gemini-embedding-2", source_hash="hash"
+):
+    """テストの前提となるベクトルを、save_embeddings を通さずに直接 DB に入れる。"""
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO novel_embeddings
+                (novel_id, embedding, model, source_hash, updated_at)
+            VALUES (%s, %s, %s, %s, %s);
+            """,
+            (novel_id, embedding, model, source_hash, datetime(2026, 10, 28, 9, 0)),
+        )
+
+
+def fetch_embeddings_by_novel_id(conn):
+    """novel_embeddings の全行を {novel_id: 行の dict} の形で返す。"""
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM novel_embeddings;")
+        return {row["novel_id"]: row for row in cur.fetchall()}

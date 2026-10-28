@@ -19,4 +19,4 @@ def test_テスト用DBにテーブルが作られている(test_db):
         tables = [row[0] for row in cur.fetchall()]
     conn.close()
 
-    assert tables == ["admins", "novels"]
+    assert tables == ["admins", "novel_embeddings", "novels"]

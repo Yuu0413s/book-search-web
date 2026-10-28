@@ -19,3 +19,7 @@ SESSION_COOKIE_PATH = "/"
 # （Secure 付きの Cookie は http では送られず、ログインできないため。
 # myapp.redirect_to_https）
 SESSION_COOKIE_SECURE = False
+
+# Gemini の埋め込み API のキー（AI 検索で使う）。Google AI Studio で発行する
+# 無料枠では、送った文章が Google のサービス改善に使われる
+GEMINI_API_KEY = ""
