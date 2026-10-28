@@ -231,7 +231,9 @@ def save_embeddings(conn, embeddings, now):
         # WHERE EXISTS で飛ばす。ただ、EXISTS を確かめてから INSERT するまでの間に
         # 消されると外部キー違反になるので、実行中の取り込み（save_novels のロック）
         # が終わるのを待ち、このトランザクションの間は消されないようにする。
-        # 検索の SELECT は待たせない
+        # 検索の SELECT は待たせない。
+        # 一覧を取った後に内容が書き換わった作品は、書き換わる前のベクトルを保存する
+        # ことになるが、source_hash が今の内容と合わないので、次の変換で作り直される
         cur.execute("LOCK TABLE novels IN SHARE MODE;")
 
         # 100 件程度なので、save_novels と同じく 1 件ずつ実行する

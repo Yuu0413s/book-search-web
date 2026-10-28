@@ -60,7 +60,8 @@ def cosine_similarity(a, b):
     if norm_a == 0 or norm_b == 0:
         raise ValueError("長さ 0 のベクトルは向きが無く、類似度を決められません")
     dot = sum(x * y for x, y in zip(a, b, strict=True))
-    return dot / (norm_a * norm_b)
+    # 小数の誤差で 1.0000000000000002 のように範囲を少し超えることがあるので収める
+    return max(-1.0, min(1.0, dot / (norm_a * norm_b)))
 
 
 def rank_by_similarity(query_vector, candidates, limit):

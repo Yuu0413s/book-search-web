@@ -146,6 +146,11 @@ def test_類似度_長さが1でないベクトルでも向きだけで決まる
     assert ai_search.cosine_similarity([3.0, 4.0], [4.0, 3.0]) == pytest.approx(0.96)
 
 
+def test_類似度_計算の誤差があっても1を超えない():
+    # [1, 1, 1] 同士は、小数の誤差で 1.0000000000000002 になる
+    assert ai_search.cosine_similarity([1.0, 1.0, 1.0], [1.0, 1.0, 1.0]) == 1.0
+
+
 def test_類似度_長さが違うベクトルはValueError():
     with pytest.raises(ValueError):
         ai_search.cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0])
