@@ -12,11 +12,13 @@ from tests.helpers import (
     FakeEmbedTexts,
     add_embedded_novel,
     add_novel,
+    add_novel_with_vector,
     fetch_embeddings_by_novel_id,
     fetch_novels_by_ncode,
     insert_embedding,
     novel_id_of,
     use_fake_embed,
+    use_fake_embed_text,
 )
 
 API_KEY = "test-api-key"
@@ -171,3 +173,97 @@ def test_状況_作品が無ければどちらも0(db_conn):
         "novel_count": 0,
         "embedded_count": 0,
     }
+
+
+# --- 文章で探す ---
+
+
+def test_文章で探す_類似度の高い順にlimit件を_作品と類似度の組で返す(
+    db_conn, monkeypatch
+):
+    add_novel_with_vector(db_conn, "N0001AA", 0.5)
+    add_novel_with_vector(db_conn, "N0002BB", 0.9)
+    add_novel_with_vector(db_conn, "N0003CC", 0.7)
+    # 別のモデルのベクトルは、どれだけ近くても比べない
+    add_novel_with_vector(db_conn, "N0004DD", 0.99, model="gemini-embedding-001:768")
+    fake = use_fake_embed_text(monkeypatch)
+
+    results = embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=2)
+
+    assert [novel["ncode"] for novel, _ in results] == ["N0002BB", "N0003CC"]
+    assert [score for _, score in results] == pytest.approx([0.9, 0.7], abs=1e-6)
+    assert fake.calls == [("task: search result | query: 切ない恋の話", API_KEY)]
+
+
+@pytest.mark.parametrize(
+    "state", ["作品が無い", "ベクトルが無い", "別のモデルのベクトルだけ"]
+)
+def test_文章で探す_比べるベクトルが無ければ_APIを呼ばずにNoneを返す(
+    db_conn, monkeypatch, state
+):
+    if state == "ベクトルが無い":
+        add_novel(db_conn, "N0001AA")
+    elif state == "別のモデルのベクトルだけ":
+        add_novel_with_vector(db_conn, "N0001AA", 0.9, model="gemini-embedding-001:768")
+    fake = use_fake_embed_text(monkeypatch)
+
+    assert embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=20) is None
+    assert fake.calls == []
+
+
+def test_文章で探す_Geminiで失敗したら_その例外をそのまま投げる(db_conn, monkeypatch):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    quota_error = gemini.GeminiQuotaError("テスト用の回数制限")
+    use_fake_embed_text(monkeypatch, error=quota_error)
+
+    with pytest.raises(gemini.GeminiQuotaError) as excinfo:
+        embedding.search_by_text(db_conn, "切ない恋の話", API_KEY, limit=20)
+    assert excinfo.value is quota_error
+
+
+# --- 似ている作品 ---
+
+
+def test_似ている作品_元の作品を除いて近い順にlimit件を返し_APIは呼ばない(
+    db_conn, monkeypatch
+):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0)  # 元の作品
+    add_novel_with_vector(db_conn, "N0002BB", 0.5)
+    add_novel_with_vector(db_conn, "N0003CC", 0.9)
+    add_novel_with_vector(db_conn, "N0004DD", 0.7)
+    add_novel_with_vector(db_conn, "N0005EE", 0.99, model="gemini-embedding-001:768")
+    fake = use_fake_embed_text(monkeypatch)
+
+    results = embedding.find_similar_novels(
+        db_conn, novel_id_of(db_conn, "N0001AA"), limit=2
+    )
+
+    assert [novel["ncode"] for novel, _ in results] == ["N0003CC", "N0004DD"]
+    assert [score for _, score in results] == pytest.approx([0.9, 0.7], abs=1e-6)
+    assert fake.calls == []
+
+
+@pytest.mark.parametrize("state", ["ベクトルが無い", "別のモデルのベクトルだけ"])
+def test_似ている作品_元の作品に今のベクトルが無ければNoneを返す(db_conn, state):
+    if state == "ベクトルが無い":
+        add_novel(db_conn, "N0001AA")
+    else:
+        add_novel_with_vector(db_conn, "N0001AA", 1.0, model="gemini-embedding-001:768")
+    # ほかの作品にはベクトルがあり、比べれば結果が出る状態にする
+    add_novel_with_vector(db_conn, "N0002BB", 0.9)
+
+    result = embedding.find_similar_novels(
+        db_conn, novel_id_of(db_conn, "N0001AA"), limit=20
+    )
+
+    assert result is None
+
+
+def test_似ている作品_ほかの作品が無ければ空のリストを返す(db_conn):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0)
+
+    result = embedding.find_similar_novels(
+        db_conn, novel_id_of(db_conn, "N0001AA"), limit=20
+    )
+
+    assert result == []

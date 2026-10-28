@@ -1,0 +1,25 @@
+{% extends "layout.html" %}
+
+{% block title %}似ている作品 | なろう小説検索{% endblock %}
+
+{% block content %}
+<h1 class="page-heading">似ている作品</h1>
+
+<ul class="novel-list">
+  {% include "_novel_card.html" %}
+</ul>
+
+{% if results is none %}
+  <p class="message">この作品はまだ AI 検索の準備ができていません。</p>
+{% elif not results %}
+  <p class="message">似ている作品がありません。</p>
+{% else %}
+  <p class="result-count">ベクトルが近い順に {{ results|length }} 件を表示（類似度は、数字が大きいほど内容が近い（目安））</p>
+
+  <ul class="novel-list">
+    {% for novel, score in results %}
+    {% include "_novel_card.html" %}
+    {% endfor %}
+  </ul>
+{% endif %}
+{% endblock %}

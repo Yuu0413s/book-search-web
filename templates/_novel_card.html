@@ -1,0 +1,18 @@
+{# 作品のカード。score を渡したときだけ類似度を出す #}
+<li class="card novel">
+  <h2 class="novel-title">
+    <a href="{{ novel.ncode|novel_url }}" target="_blank" rel="noopener noreferrer">{{ novel.title }}</a>
+  </h2>
+  <p class="novel-meta">
+    <span>{{ novel.writer }}</span>
+    <span class="genre">{{ novel.genre|genre_name }}</span>
+    <span>最終更新 {{ novel.general_lastup.strftime('%Y-%m-%d') }}</span>
+    {% if score is defined %}
+    <span class="similarity">類似度 {{ score|percent }}%</span>
+    {% endif %}
+  </p>
+  <p class="novel-story">{{ novel.story|excerpt }}</p>
+  <p class="novel-links">
+    <a href="{{ url_for('similar_novels', ncode=novel.ncode) }}">似ている作品</a>
+  </p>
+</li>

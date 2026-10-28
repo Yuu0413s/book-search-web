@@ -1,4 +1,5 @@
-"""作品のベクトル化（DB の作品を Gemini でベクトルにして保存する）。
+"""作品のベクトル化（DB の作品を Gemini でベクトルにして保存する）と、
+保存したベクトルを使った検索（文章で探す・似ている作品）。
 
 db.py と同じく、DB の接続は呼ぶ側から受け取り、Flask に依存させない
 （管理画面・2 つのコマンド・テストから同じように呼ぶため）。
@@ -63,3 +64,41 @@ def get_embedding_status(conn):
         "novel_count": len(targets),
         "embedded_count": len(targets) - len(needed),
     }
+
+
+def search_by_text(conn, text, api_key, limit):
+    """text に意味が近い作品を近い順に limit 件、(作品の dict, 類似度) のリストで返す。
+
+    比べるベクトルが 1 件も無ければ None を返す（結果が 0 件の [] とは分ける）。
+    そのときは、無料枠を使わないよう Gemini を呼ばない。
+    Gemini で失敗したら GeminiApiError をそのまま投げる。
+    """
+    candidates = db.fetch_embeddings(conn, gemini.EMBEDDING_ID)
+    if not candidates:
+        return None
+    query_vector = gemini.embed_text(ai_search.query_text(text), api_key)
+    ranked = ai_search.rank_by_similarity(query_vector, candidates, limit)
+    return _with_novels(conn, ranked)
+
+
+def find_similar_novels(conn, novel_id, limit):
+    """作品 novel_id にベクトルが近いほかの作品を、search_by_text と同じ形で返す。
+
+    元の作品に今のモデルのベクトルが無ければ None を返す。API は呼ばない。
+    """
+    candidates = db.fetch_embeddings(conn, gemini.EMBEDDING_ID)
+    source_vectors = [vector for id_, vector in candidates if id_ == novel_id]
+    if not source_vectors:
+        return None
+    others = [(id_, vector) for id_, vector in candidates if id_ != novel_id]
+    ranked = ai_search.rank_by_similarity(source_vectors[0], others, limit)
+    return _with_novels(conn, ranked)
+
+
+def _with_novels(conn, ranked):
+    """(作品の id, 類似度) のリストを、順番を保って (作品の dict, 類似度) にする。"""
+    novels = db.fetch_novels_by_ids(conn, [novel_id for novel_id, _ in ranked])
+    # ベクトルを読んでから作品を読むまでの間に、取り込みで消えた作品は飛ばす
+    return [
+        (novels[novel_id], score) for novel_id, score in ranked if novel_id in novels
+    ]

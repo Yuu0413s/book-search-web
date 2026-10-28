@@ -1,6 +1,7 @@
 """複数のテストファイルで使う、テストデータの組み立て・
 テスト用 DB の接続文字列・DB への投入と読み出し・外部 API の差し替え。"""
 
+import math
 from datetime import datetime
 
 import psycopg2.extras
@@ -212,4 +213,48 @@ def use_fake_embed(monkeypatch, errors=None):
     """
     fake = FakeEmbedTexts(errors=errors)
     monkeypatch.setattr(gemini, "embed_texts", fake)
+    return fake
+
+
+def vector_with_similarity(similarity):
+    """[1, 0, 0, …] とのコサイン類似度が similarity になる、長さ 1 のベクトル。"""
+    return [similarity, math.sqrt(1 - similarity**2)] + [0.0] * (
+        EMBEDDING_DIMENSIONS - 2
+    )
+
+
+# 検索の文章のベクトル。vector_with_similarity(x) の作品とは、類似度が x になる
+QUERY_VECTOR = vector_with_similarity(1.0)
+
+
+def add_novel_with_vector(conn, ncode, similarity, model=EMBEDDING_ID, **overrides):
+    """QUERY_VECTOR との類似度が similarity になるベクトルを持つ作品を入れる。"""
+    add_novel(conn, ncode, **overrides)
+    insert_embedding(
+        conn, novel_id_of(conn, ncode), vector_with_similarity(similarity), model=model
+    )
+
+
+class FakeEmbedText:
+    """gemini.embed_text の代わり（実際の API は呼ばない）。
+
+    呼ばれるたびに (送られた文章, キー) を calls に記録し、QUERY_VECTOR を返す。
+    error を渡すと、返す代わりにその例外を投げる。
+    """
+
+    def __init__(self, error=None):
+        self.calls = []
+        self.error = error
+
+    def __call__(self, text, api_key):
+        self.calls.append((text, api_key))
+        if self.error is not None:
+            raise self.error
+        return QUERY_VECTOR
+
+
+def use_fake_embed_text(monkeypatch, error=None):
+    """gemini.embed_text を FakeEmbedText に差し替えて返す。"""
+    fake = FakeEmbedText(error=error)
+    monkeypatch.setattr(gemini, "embed_text", fake)
     return fake

@@ -179,6 +179,45 @@ select {
   white-space: pre-line;
 }
 
+.similarity {
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.novel-links {
+  margin: 8px 0 0;
+  font-size: 0.85rem;
+}
+
+/* 検索の種類のタブ */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.tab {
+  padding: 8px 16px;
+  border-bottom: 2px solid transparent;
+  color: var(--color-muted);
+  text-decoration: none;
+}
+
+.tab-current {
+  border-bottom-color: var(--color-accent);
+  color: var(--color-text);
+  font-weight: bold;
+}
+
+/* 似ている作品 */
+.page-heading {
+  margin: 0 0 16px;
+  font-size: 1.25rem;
+}
+
 /* ページ送り */
 .pagination {
   display: flex;

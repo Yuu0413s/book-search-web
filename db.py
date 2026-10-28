@@ -131,6 +131,25 @@ def search_novels(conn, *, words, writer, genre, sort, limit, offset):
         return cur.fetchall(), total
 
 
+def find_novel_by_ncode(conn, ncode):
+    """作品を 1 件返す（novels の全列の dict）。無ければ None。"""
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM novels WHERE ncode = %s;", (ncode,))
+        return cur.fetchone()
+
+
+def fetch_novels_by_ids(conn, ids):
+    """ids の作品を {id: 作品の dict} で返す。無い id は含めない。
+
+    ANY(...) は結果の順番を決めないので、並べ方は呼ぶ側に任せる。
+    """
+    if not ids:
+        return {}
+    with conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM novels WHERE id = ANY(%s);", (list(ids),))
+        return {row["id"]: row for row in cur.fetchall()}
+
+
 def _contains_pattern(text):
     """部分一致用の ILIKE パターンを作る。
 

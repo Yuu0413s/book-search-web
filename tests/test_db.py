@@ -521,3 +521,42 @@ def test_取り込みで14日を過ぎた作品が消えると_そのベクト�
     db.save_novels(db_conn, [make_novel("N0002BB")], NOW)
 
     assert list(fetch_embeddings_by_novel_id(db_conn)) == [kept_id]
+
+
+# --- AI 検索の結果に出す作品 ---
+
+
+def test_ncodeで作品を1件返す_idも含む(db_conn):
+    add_novel(db_conn, "N0001AA", title="一作目")
+    add_novel(db_conn, "N0002BB", title="二作目")
+
+    novel = db.find_novel_by_ncode(db_conn, "N0001AA")
+
+    assert novel["id"] == novel_id_of(db_conn, "N0001AA")
+    assert novel["ncode"] == "N0001AA"
+    assert novel["title"] == "一作目"
+
+
+def test_無いncodeならNoneを返す(db_conn):
+    add_novel(db_conn, "N0001AA")
+
+    assert db.find_novel_by_ncode(db_conn, "N9999ZZ") is None
+
+
+def test_idのリストで作品を_idをキーにした辞書で返す_無いidは含めない(db_conn):
+    for ncode in ["N0001AA", "N0002BB", "N0003CC"]:
+        add_novel(db_conn, ncode)
+    first_id = novel_id_of(db_conn, "N0001AA")
+    third_id = novel_id_of(db_conn, "N0003CC")
+
+    novels = db.fetch_novels_by_ids(db_conn, [third_id, first_id, 999999])
+
+    assert set(novels) == {first_id, third_id}
+    assert novels[first_id]["ncode"] == "N0001AA"
+    assert novels[third_id]["ncode"] == "N0003CC"
+
+
+def test_idのリストが空なら空の辞書を返す(db_conn):
+    add_novel(db_conn, "N0001AA")
+
+    assert db.fetch_novels_by_ids(db_conn, []) == {}

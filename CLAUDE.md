@@ -20,7 +20,7 @@ mid_assign/                  → サーバの ~/myapp/
 ├── narou.py                 # なろう API からの取得と変換
 ├── gemini.py                # Gemini 埋め込み API の呼び出し（文章 → ベクトル）
 ├── ai_search.py             # AI 検索の計算（文章の組み立て・ハッシュ・類似度・上位の選び出し）
-├── embedding.py             # 作品のベクトル化（DB の作品を Gemini でベクトルにして保存する）
+├── embedding.py             # 作品のベクトル化と、ベクトルを使った検索（文章で探す・似ている作品）
 ├── db.py                    # SQL（接続は呼ぶ側から受け取る）
 ├── auth.py                  # ログイン必須チェック・CSRF トークン
 ├── genres.py                # ジャンルのコード → 名前の辞書

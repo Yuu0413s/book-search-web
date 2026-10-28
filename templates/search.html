@@ -1,6 +1,46 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<nav class="tabs" aria-label="検索の種類">
+  {% if mode == "ai" %}
+  <a class="tab" href="{{ url_for('index') }}">キーワード検索</a>
+  <span class="tab tab-current" aria-current="page">AI 検索</span>
+  {% else %}
+  <span class="tab tab-current" aria-current="page">キーワード検索</span>
+  <a class="tab" href="{{ url_for('index', mode='ai') }}">AI 検索</a>
+  {% endif %}
+</nav>
+
+{% if mode == "ai" %}
+<form class="card search-form" action="{{ url_for('index') }}" method="get">
+  <input type="hidden" name="mode" value="ai">
+  <div class="field">
+    <label for="q">読みたい話</label>
+    <input id="q" type="search" name="q" value="{{ ai_query }}" maxlength="{{ max_ai_query_length }}" placeholder="例：追放された主人公が辺境でのんびり暮らす話（{{ max_ai_query_length }} 文字まで）">
+  </div>
+
+  <div class="actions">
+    <a class="button button-ghost" href="{{ url_for('index', mode='ai') }}">クリア</a>
+    <button class="button" type="submit">AI で検索</button>
+  </div>
+</form>
+
+{% if ai_message %}
+  <p class="message">{{ ai_message }}</p>
+{% elif ai_results is not none %}
+  {% if ai_results %}
+  <p class="result-count">意味の近い順に {{ ai_results|length }} 件を表示（類似度は、数字が大きいほど内容が近い（目安））</p>
+
+  <ul class="novel-list">
+    {% for novel, score in ai_results %}
+    {% include "_novel_card.html" %}
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="message">条件に合う作品がありません。</p>
+  {% endif %}
+{% endif %}
+{% else %}
 <form class="card search-form" action="{{ url_for('index') }}" method="get">
   <div class="field">
     <label for="q">キーワード</label>
@@ -57,17 +97,7 @@
 
   <ul class="novel-list">
     {% for novel in novels %}
-    <li class="card novel">
-      <h2 class="novel-title">
-        <a href="{{ novel.ncode|novel_url }}" target="_blank" rel="noopener noreferrer">{{ novel.title }}</a>
-      </h2>
-      <p class="novel-meta">
-        <span>{{ novel.writer }}</span>
-        <span class="genre">{{ novel.genre|genre_name }}</span>
-        <span>最終更新 {{ novel.general_lastup.strftime('%Y-%m-%d') }}</span>
-      </p>
-      <p class="novel-story">{{ novel.story|excerpt }}</p>
-    </li>
+    {% include "_novel_card.html" %}
     {% endfor %}
   </ul>
 {% endif %}
@@ -90,5 +120,6 @@
   <a href="{{ page_url(search.page + 1) }}">次へ</a>
   {% endif %}
 </nav>
+{% endif %}
 {% endif %}
 {% endblock %}

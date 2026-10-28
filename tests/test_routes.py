@@ -4,10 +4,16 @@ from datetime import datetime
 from urllib.parse import quote
 
 import pytest
+import requests
 
 import db
+import gemini
 import myapp
-from tests.helpers import add_novel
+from tests.helpers import add_novel, add_novel_with_vector, use_fake_embed_text
+
+UNAVAILABLE_MESSAGE = "AI 検索が一時的に使えません。キーワード検索をお使いください"
+NOT_READY_MESSAGE = "AI 検索の準備ができていません"
+GUIDE_MESSAGE = "数字が大きいほど内容が近い（目安）"
 
 
 def get_html(client, query="", **kwargs):
@@ -228,6 +234,284 @@ def test_URLの先頭にs2422016が付く環境ではリンクとCSSにも付く
         link.startswith("/s2422016/") for link in hrefs_containing(page, "page=2")
     )
     assert 'action="/s2422016/"' in page
+
+
+# --- タブ ---
+
+
+def test_キーワード検索の画面に_AI検索のタブがある(client, db_conn):
+    page = get_html(client)
+
+    assert hrefs_containing(page, "mode=ai")
+    assert 'name="writer"' in page
+
+
+def test_AI検索のタブでは文章の欄だけを出し_作者_ジャンル_並び順の欄は出さない(
+    client, db_conn
+):
+    page = get_html(client, "mode=ai")
+
+    assert 'name="q"' in page
+    assert 'name="mode" value="ai"' in page
+    for name in ["writer", "genre", "sort"]:
+        assert f'name="{name}"' not in page
+    assert re.search(r'<a [^>]*href="/"[^>]*>キーワード検索</a>', page)
+
+
+@pytest.mark.parametrize("mode", ["AI", "keyword", ""])
+def test_modeがai以外ならキーワード検索になる(client, db_conn, monkeypatch, mode):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, f"mode={mode}&q=abc")
+
+    assert 'name="writer"' in page
+    assert fake.calls == []
+
+
+# --- AI 検索 ---
+
+
+def ai_search_query(text):
+    return f"mode=ai&q={quote(text)}"
+
+
+def test_AI検索_近い順に作品と類似度を表示し_目安だと添える(
+    client, db_conn, monkeypatch
+):
+    add_novel_with_vector(db_conn, "N0001AA", 0.6, title="遠い作品")
+    add_novel_with_vector(db_conn, "N0002BB", 0.8234, title="近い作品")
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("切ない恋の話"))
+
+    assert page.index("近い作品") < page.index("遠い作品")
+    # 類似度は 100 倍して四捨五入した整数で出す
+    assert "類似度 82%" in page
+    assert "類似度 60%" in page
+    assert GUIDE_MESSAGE in page
+    assert fake.calls == [
+        ("task: search result | query: 切ない恋の話", "test-gemini-key")
+    ]
+    # 入力した文章はフォームに残す
+    assert 'value="切ない恋の話"' in page
+
+
+def test_類似度のパーセントは_100倍して四捨五入した整数にする():
+    # 切り捨てなら 87 になる値で確かめる（0.8234 や 0.6 は、どちらでも同じ結果になる）
+    assert myapp.percent(0.876) == 88
+    assert myapp.percent(0.874) == 87
+
+
+def test_AI検索_上位20件だけを表示する(client, db_conn, monkeypatch):
+    for i in range(25):
+        add_novel_with_vector(db_conn, f"N{i:04d}AA", 0.5 + i * 0.01)
+    use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("切ない恋の話"))
+
+    assert page.count('class="card novel"') == 20
+
+
+def test_AI検索_各作品に似ている作品へのリンクがある(client, db_conn, monkeypatch):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("切ない恋の話"))
+
+    assert hrefs_containing(page, "/novels/N0001AA/similar")
+
+
+@pytest.mark.parametrize("query", ["mode=ai", "mode=ai&q=", "mode=ai&q=%E3%80%80+"])
+def test_AI検索_入力が空か空白だけなら_APIを呼ばず結果も出さない(
+    client, db_conn, monkeypatch, query
+):
+    # ベクトルを入れておき、検索が走れば結果が出る状態にする
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, query)
+
+    assert fake.calls == []
+    assert "類似度" not in page
+    assert NOT_READY_MESSAGE not in page
+
+
+def test_AI検索_ちょうど200文字なら検索する(client, db_conn, monkeypatch):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("あ" * 200))
+
+    assert len(fake.calls) == 1
+    assert "類似度 90%" in page
+
+
+def test_AI検索_200文字を超えたら_APIを呼ばずに注意を出す(client, db_conn, monkeypatch):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("あ" * 201))
+
+    assert fake.calls == []
+    assert "200 文字以内で入力してください" in page
+    assert "類似度" not in page
+
+
+def test_AI検索_比べるベクトルが無ければ_APIを呼ばずに準備ができていないと出す(
+    client, db_conn, monkeypatch
+):
+    add_novel(db_conn, "N0001AA")
+    fake = use_fake_embed_text(monkeypatch)
+
+    page = get_html(client, ai_search_query("切ない恋の話"))
+
+    assert fake.calls == []
+    assert NOT_READY_MESSAGE in page
+
+
+def test_AI検索_Geminiで失敗したら503で案内を出し_理由をエラーログに残す(
+    client, db_conn, monkeypatch, caplog
+):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    use_fake_embed_text(monkeypatch, error=gemini.GeminiApiError("テスト用の変換失敗"))
+
+    response = client.get(f"/?{ai_search_query('切ない恋の話')}")
+
+    assert response.status_code == 503
+    page = response.get_data(as_text=True)
+    assert UNAVAILABLE_MESSAGE in page
+    # 詳しい理由は画面に出さず、エラーログにだけ残す
+    assert "テスト用の変換失敗" not in page
+    assert "テスト用の変換失敗" in caplog.text
+
+
+def test_AI検索_APIキーの形が正しくなくても_キーの値は画面にもエラーログにも出ない(
+    app, client, db_conn, monkeypatch, caplog
+):
+    # 先頭の改行は、そのまま送ると requests の例外の文言にキーの値が入る形
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    monkeypatch.setitem(app.config, "GEMINI_API_KEY", "\nsecret-gemini-key")
+    post_calls = []
+
+    def fake_post(*args, **kwargs):
+        post_calls.append(kwargs)
+        raise requests.ConnectionError("テスト用の通信エラー")
+
+    monkeypatch.setattr(gemini.requests, "post", fake_post)
+
+    response = client.get(f"/?{ai_search_query('切ない恋の話')}")
+
+    assert response.status_code == 503
+    assert post_calls == []
+    assert "GEMINI_API_KEY" in caplog.text
+    assert "secret-gemini-key" not in caplog.text
+    assert "secret-gemini-key" not in response.get_data(as_text=True)
+
+
+def test_キーワード検索の作品にも_似ている作品へのリンクがある(client, db_conn):
+    add_novel(db_conn, "N2710DB")
+
+    page = get_html(client)
+
+    assert hrefs_containing(page, "/novels/N2710DB/similar")
+
+
+def test_URLの先頭にs2422016が付く環境では_タブと似ている作品のリンクにも付く(
+    client, db_conn, monkeypatch
+):
+    add_novel_with_vector(db_conn, "N0001AA", 0.9)
+    use_fake_embed_text(monkeypatch)
+
+    page = get_html(
+        client, ai_search_query("切ない恋の話"), base_url="http://localhost/s2422016/"
+    )
+
+    links = hrefs_containing(page, "mode=ai") + hrefs_containing(page, "/similar")
+    assert hrefs_containing(page, "mode=ai")
+    assert hrefs_containing(page, "/similar")
+    assert all(link.startswith("/s2422016/") for link in links)
+    assert 'action="/s2422016/"' in page
+
+
+# --- 似ている作品 ---
+
+
+def test_似ている作品_元の作品と_近い順のほかの作品と類似度を出し_APIは呼ばない(
+    client, db_conn, monkeypatch
+):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0, title="元の作品")
+    add_novel_with_vector(db_conn, "N0002BB", 0.6, title="遠い作品")
+    add_novel_with_vector(db_conn, "N0003CC", 0.8234, title="近い作品")
+    fake = use_fake_embed_text(monkeypatch)
+
+    response = client.get("/novels/N0001AA/similar")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert page.index("元の作品") < page.index("近い作品") < page.index("遠い作品")
+    assert "類似度 82%" in page
+    assert "類似度 60%" in page
+    assert GUIDE_MESSAGE in page
+    # 元の作品は一覧に入れない（入れば類似度 100% のカードが出る）
+    assert "類似度 100%" not in page
+    assert page.count('class="card novel"') == 3
+    assert fake.calls == []
+
+
+def test_似ている作品_上位20件だけを表示する(client, db_conn):
+    add_novel_with_vector(db_conn, "N9999ZZ", 1.0)
+    for i in range(25):
+        add_novel_with_vector(db_conn, f"N{i:04d}AA", 0.5 + i * 0.01)
+
+    page = client.get("/novels/N9999ZZ/similar").get_data(as_text=True)
+
+    # 元の作品のカード 1 枚と、似ている作品 20 枚
+    assert page.count('class="card novel"') == 21
+
+
+def test_似ている作品_無い作品なら404(client, db_conn):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0)
+
+    assert client.get("/novels/N9999ZZ/similar").status_code == 404
+
+
+def test_似ている作品_小文字のncodeでも同じ作品を出す(client, db_conn):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0, title="元の作品")
+    add_novel_with_vector(db_conn, "N0002BB", 0.9, title="近い作品")
+
+    response = client.get("/novels/n0001aa/similar")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "元の作品" in page
+    assert "類似度 90%" in page
+
+
+def test_似ている作品_元の作品にベクトルが無ければ_準備ができていないと出す(
+    client, db_conn
+):
+    add_novel(db_conn, "N0001AA", title="元の作品")
+    add_novel_with_vector(db_conn, "N0002BB", 0.9, title="近い作品")
+
+    response = client.get("/novels/N0001AA/similar")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "元の作品" in page
+    assert "この作品はまだ AI 検索の準備ができていません" in page
+    assert "近い作品" not in page
+
+
+def test_似ている作品_ほかの作品が無ければそう出す(client, db_conn):
+    add_novel_with_vector(db_conn, "N0001AA", 1.0, title="元の作品")
+
+    response = client.get("/novels/N0001AA/similar")
+
+    assert response.status_code == 200
+    page = response.get_data(as_text=True)
+    assert "元の作品" in page
+    assert "似ている作品がありません" in page
 
 
 # --- DB 接続 ---

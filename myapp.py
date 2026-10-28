@@ -7,6 +7,7 @@ import click
 import psycopg2
 from flask import (
     Flask,
+    abort,
     flash,
     g,
     redirect,
@@ -30,6 +31,12 @@ PER_PAGE = 20
 # DB を重くされないよう上限を設ける
 MAX_KEYWORDS = 10
 STORY_EXCERPT_LENGTH = 200
+# AI 検索と似ている作品で出す件数（ページ送りはしない）
+AI_RESULT_LIMIT = 20
+# 読みたい話を 1〜2 文で書くには十分で、長い入力で API の利用量を増やされないため
+MAX_AI_QUERY_LENGTH = 200
+AI_UNAVAILABLE_MESSAGE = "AI 検索が一時的に使えません。キーワード検索をお使いください"
+AI_NOT_READY_MESSAGE = "AI 検索の準備ができていません"
 
 # 並び順の表示名。キーは db.SORT_ORDERS と揃える
 SORT_LABELS = {
@@ -150,6 +157,12 @@ def excerpt(text):
     return text[:STORY_EXCERPT_LENGTH] + "…"
 
 
+@app.template_filter("percent")
+def percent(score):
+    # 類似度（-1〜1）を 100 倍して、四捨五入した整数にする
+    return round(score * 100)
+
+
 @app.template_filter("genre_name")
 def genre_name(code):
     return genres.GENRE_NAMES.get(code, genres.UNKNOWN_GENRE_NAME)
@@ -192,6 +205,10 @@ def _to_int(text):
 
 @app.route("/")
 def index():
+    # mode が ai 以外の値や無いときは、今までどおりキーワード検索にする
+    if request.args.get("mode") == "ai":
+        return ai_search()
+
     search = parse_search_args(request.args)
     # str.split() は全角スペースも区切りとして扱う。同じ語は（順番を保ったまま）
     # 1 つにまとめてから数える
@@ -222,6 +239,7 @@ def index():
 
     return render_template(
         "search.html",
+        mode="keyword",
         search=search,
         novels=novels,
         total=total,
@@ -239,6 +257,52 @@ def now_jst():
     # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
     # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
     return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
+
+
+def ai_search():
+    """AI 検索（/?mode=ai&q=…）の画面を返す。"""
+    query = _remove_nul(request.args.get("q", "")).strip()
+    if not query:
+        return render_ai_search(query)
+    if len(query) > MAX_AI_QUERY_LENGTH:
+        message = f"{MAX_AI_QUERY_LENGTH} 文字以内で入力してください"
+        return render_ai_search(query, message=message)
+
+    try:
+        results = embedding.search_by_text(
+            get_db(), query, app.config.get("GEMINI_API_KEY", ""), AI_RESULT_LIMIT
+        )
+    except gemini.GeminiApiError as e:
+        # 文言にキーの値が入らないのは、管理画面のベクトル化と同じ
+        # （flash_embedding_result のコメント）
+        app.logger.error("AI 検索に失敗しました（%s）", e)
+        # 503 は「一時的に使えない」の意味。誰でも使う画面なので、次の行動を案内する
+        return render_ai_search(query, message=AI_UNAVAILABLE_MESSAGE), 503
+    if results is None:
+        return render_ai_search(query, message=AI_NOT_READY_MESSAGE)
+    return render_ai_search(query, results=results)
+
+
+def render_ai_search(query, results=None, message=None):
+    return render_template(
+        "search.html",
+        mode="ai",
+        ai_query=query,
+        ai_results=results,
+        ai_message=message,
+        max_ai_query_length=MAX_AI_QUERY_LENGTH,
+    )
+
+
+@app.route("/novels/<ncode>/similar")
+def similar_novels(ncode):
+    # DB の ncode は大文字。作品ページの URL は小文字なので、手で打った小文字でも
+    # 探せるようにする
+    novel = db.find_novel_by_ncode(get_db(), ncode.upper())
+    if novel is None:
+        abort(404)
+    results = embedding.find_similar_novels(get_db(), novel["id"], AI_RESULT_LIMIT)
+    return render_template("similar.html", novel=novel, results=results)
 
 
 def run_import():
