@@ -258,8 +258,7 @@ def test_例外の文言にAPIキーが含まれない(monkeypatch, call):
 def test_キーの形が正しくなければ_APIを呼ばずにGeminiApiErrorで_文言にキーが入らない(
     monkeypatch, api_key, call_with_key
 ):
-    # 先頭の空白や改行は requests の例外の文言にキーの値が入り、末尾の改行や全角文字は
-    # GeminiApiError 以外の例外になる。どれも送る前に弾くことを確かめる
+    # 形が正しくないキーは、送る前に弾く（理由は gemini.API_KEY_PATTERN のコメント）
     calls = []
     monkeypatch.setattr(
         gemini.requests,
@@ -278,8 +277,8 @@ def test_キーの形が正しくなければ_APIを呼ばずにGeminiApiError�
 
 def test_保存するモデルの名前には次元数も含める():
     # 次元数だけを変えたときも、古いベクトルを作り直す対象として見分けるため
-    # 期待値は helpers の EMBEDDING_ID（"gemini-embedding-2:768"）。ほかのテストも
-    # この値を使うので、1 か所にまとめ、実装とずれたらここで落ちるようにする
+    # 期待値は helpers の EMBEDDING_ID。ほかのテストもこの値を使うので、1 か所に
+    # まとめ、実装とずれたらここで落ちるようにする
     assert gemini.EMBEDDING_ID == EMBEDDING_ID
 
 

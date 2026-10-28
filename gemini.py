@@ -24,11 +24,13 @@ EMBED_TIMEOUT_SECONDS = 10
 BATCH_EMBED_TIMEOUT_SECONDS = 30
 DIMENSION_CONFIG = {"outputDimensionality": DIMENSIONS}
 # Google の API キーに使われる文字。これ以外が混ざったまま送ると、次のことが起きる
-# - 先頭の空白や改行: requests の例外の文言にキーの値が入り、それを包む
-#   GeminiApiError の文言を通して、ほかの学生も読めるエラーログに出る
-# - 末尾の改行・全角文字: http.client などが RequestException ではない例外を投げ、
-#   下の except をすり抜ける（末尾の改行なら、その文言にもキーの値が入る）
-# - 末尾の空白: 気付かれないまま送られ、Google に弾かれる
+# - 先頭の空白（全角も含む）や CR・LF（末尾の LF 1 個だけを除く）: requests の例外の
+#   文言にキーの値が入り、それを包む GeminiApiError の文言を通して、ほかの学生も
+#   読めるエラーログに出る
+# - 末尾の LF 1 個だけ・先頭以外の全角文字: http.client が RequestException ではない
+#   例外を投げ、_post の except をすり抜ける（末尾の LF なら、その文言にもキーの
+#   値が入る）
+# - 途中や末尾の空白: 例外にならずに送られ、相手がどう扱うかは分からない
 # そこで送る前に弾き、設定の間違いだと分かる文言にする
 API_KEY_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 
