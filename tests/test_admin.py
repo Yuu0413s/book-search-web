@@ -15,7 +15,7 @@ from tests.helpers import (
     fetch_novels_by_ncode,
     insert_novel,
     make_novel,
-    use_embed_errors,
+    use_fake_embed,
 )
 
 USERNAME = "admin"
@@ -25,7 +25,9 @@ ADMIN_QUOTA_MESSAGE = (
     "回数制限に達しました。1 分ほど待ってから「足りない分をベクトル化」で"
     "やり直してください"
 )
-ERROR_LOG_MESSAGE = "ベクトル化に失敗しました。詳しくはエラーログを見てください"
+ADMIN_EMBEDDING_ERROR_MESSAGE = (
+    "ベクトル化に失敗しました。詳しくはエラーログを見てください"
+)
 
 
 def csrf_token_in(page_html):
@@ -351,7 +353,7 @@ def test_ベクトル化に失敗しても取り込みは保存され_失敗の�
 ):
     novels = [make_novel("N0001AA"), make_novel("N0002BB")]
     monkeypatch.setattr(narou, "fetch_top_novels", lambda: novels)
-    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
     token = page_csrf_token(admin_client, "/admin")
 
     response = admin_client.post("/admin/import", data={"csrf_token": token})
@@ -362,7 +364,7 @@ def test_ベクトル化に失敗しても取り込みは保存され_失敗の�
     page = admin_client.get("/admin").get_data(as_text=True)
     assert page.count(">取り込みました（追加 2 件・更新 0 件・削除 0 件）<") == 1
     assert page.count(">ベクトル化しました（成功 0 件・失敗 2 件）<") == 1
-    assert page.count(f">{ERROR_LOG_MESSAGE}<") == 1
+    assert page.count(f">{ADMIN_EMBEDDING_ERROR_MESSAGE}<") == 1
 
 
 def test_取り込みに失敗したらベクトル化しない(
@@ -410,7 +412,7 @@ def test_回数制限なら_件数と_待ってからやり直す案内を出す
 ):
     add_novel(db_conn, "N0001AA")
     add_novel(db_conn, "N0002BB")
-    use_embed_errors(monkeypatch, {1: gemini.GeminiQuotaError("テスト用の回数制限")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiQuotaError("テスト用の回数制限")})
 
     response = post_embed(admin_client)
 
@@ -418,7 +420,7 @@ def test_回数制限なら_件数と_待ってからやり直す案内を出す
     page = admin_client.get("/admin").get_data(as_text=True)
     assert page.count(">ベクトル化しました（成功 0 件・失敗 2 件）<") == 1
     assert page.count(f">{ADMIN_QUOTA_MESSAGE}<") == 1
-    assert ERROR_LOG_MESSAGE not in page
+    assert ADMIN_EMBEDDING_ERROR_MESSAGE not in page
     assert "テスト用の回数制限" in caplog.text
 
 
@@ -426,14 +428,14 @@ def test_回数制限以外の失敗なら_エラーログを見るよう案内�
     admin_client, db_conn, monkeypatch, caplog
 ):
     add_novel(db_conn, "N0001AA")
-    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
 
     response = post_embed(admin_client)
 
     assert response.status_code == 302
     page = admin_client.get("/admin").get_data(as_text=True)
     assert page.count(">ベクトル化しました（成功 0 件・失敗 1 件）<") == 1
-    assert page.count(f">{ERROR_LOG_MESSAGE}<") == 1
+    assert page.count(f">{ADMIN_EMBEDDING_ERROR_MESSAGE}<") == 1
     assert ADMIN_QUOTA_MESSAGE not in page
     # 理由の詳しい文言は、画面には出さずエラーログにだけ残す
     assert "テスト用の変換失敗" not in page
@@ -449,7 +451,7 @@ def test_失敗が無ければ_案内の行は出さない(admin_client, db_conn
     # ベクトル化が走って結果が出ていることを先に確かめ、「出ない」の空振りを防ぐ
     assert page.count(">ベクトル化しました（成功 1 件・失敗 0 件）<") == 1
     assert ADMIN_QUOTA_MESSAGE not in page
-    assert ERROR_LOG_MESSAGE not in page
+    assert ADMIN_EMBEDDING_ERROR_MESSAGE not in page
 
 
 def record_post_calls(monkeypatch):

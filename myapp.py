@@ -57,7 +57,9 @@ COMMAND_QUOTA_MESSAGE = (
     "回数制限に達しました。1 分ほど待ってから embed-novels でやり直してください"
 )
 # 理由の詳しい文言は、管理画面には出さずエラーログにだけ残す
-EMBEDDING_ERROR_MESSAGE = "ベクトル化に失敗しました。詳しくはエラーログを見てください"
+ADMIN_EMBEDDING_ERROR_MESSAGE = (
+    "ベクトル化に失敗しました。詳しくはエラーログを見てください"
+)
 
 # instance_relative_config=True で、設定ファイルを instance/ から探す
 app = Flask(__name__, instance_relative_config=True)
@@ -287,7 +289,7 @@ def flash_embedding_result(result):
     if isinstance(error, gemini.GeminiQuotaError):
         flash(ADMIN_QUOTA_MESSAGE)
     else:
-        flash(EMBEDDING_ERROR_MESSAGE)
+        flash(ADMIN_EMBEDDING_ERROR_MESSAGE)
 
 
 @app.route("/admin/login", methods=["GET", "POST"])

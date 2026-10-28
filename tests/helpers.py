@@ -1,5 +1,5 @@
 """複数のテストファイルで使う、テストデータの組み立て・
-テスト用 DB の接続文字列・DB への投入と読み出し。"""
+テスト用 DB の接続文字列・DB への投入と読み出し・外部 API の差し替え。"""
 
 from datetime import datetime
 
@@ -19,6 +19,9 @@ TEST_DB_DSN = (
 # 実装の定数を参照せずに書く
 EMBEDDING_ID = "gemini-embedding-2:768"
 EMBEDDING_DIMENSIONS = 768
+# insert_embedding で入れるベクトルの更新日時。test_embedding は、保存時刻がこれと
+# 違うことで「変換済みの作品を保存し直していない」を確かめる
+EMBEDDED_AT = datetime(2026, 10, 28, 9, 0)
 
 
 class FakeResponse:
@@ -137,8 +140,6 @@ def novel_id_of(conn, ncode):
 
 def insert_embedding(conn, novel_id, embedding, model=EMBEDDING_ID, source_hash="hash"):
     """テストの前提となるベクトルを、save_embeddings を通さずに直接 DB に入れる。"""
-    # 更新日時は固定の値にする。test_embedding は、この値が保存時刻（NOW）と違うことで
-    # 「変換済みの作品を保存し直していない」を確かめるので、NOW と同じ値にしない
     with conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -146,7 +147,7 @@ def insert_embedding(conn, novel_id, embedding, model=EMBEDDING_ID, source_hash=
                 (novel_id, embedding, model, source_hash, updated_at)
             VALUES (%s, %s, %s, %s, %s);
             """,
-            (novel_id, embedding, model, source_hash, datetime(2026, 10, 28, 9, 0)),
+            (novel_id, embedding, model, source_hash, EMBEDDED_AT),
         )
 
 
@@ -204,10 +205,10 @@ class FakeEmbedTexts:
         return self.vectors_by_text[text]
 
 
-def use_embed_errors(monkeypatch, errors):
+def use_fake_embed(monkeypatch, errors=None):
     """gemini.embed_texts を FakeEmbedTexts に差し替えて返す。
 
-    errors は {何回目の呼び出しか（1 から）: 投げる例外}。空なら常に成功する。
+    errors は {何回目の呼び出しか（1 から）: 投げる例外}。省略すると常に成功する。
     """
     fake = FakeEmbedTexts(errors=errors)
     monkeypatch.setattr(gemini, "embed_texts", fake)

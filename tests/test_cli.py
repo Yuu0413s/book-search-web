@@ -9,7 +9,7 @@ from tests.helpers import (
     fetch_novels_by_ncode,
     insert_novel,
     make_novel,
-    use_embed_errors,
+    use_fake_embed,
 )
 
 
@@ -85,7 +85,7 @@ def test_取り込みコマンドは_ベクトル化に失敗しても終了コ�
 ):
     novels = [make_novel("N0001AA"), make_novel("N0002BB")]
     monkeypatch.setattr(narou, "fetch_top_novels", lambda: novels)
-    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
 
     result = app.test_cli_runner().invoke(args=["import-novels"])
 
@@ -117,7 +117,7 @@ def test_ベクトル化コマンドは_回数制限なら案内を表示して�
     app, db_conn, monkeypatch
 ):
     add_novel(db_conn, "N0001AA")
-    use_embed_errors(monkeypatch, {1: gemini.GeminiQuotaError("テスト用の回数制限")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiQuotaError("テスト用の回数制限")})
 
     result = app.test_cli_runner().invoke(args=["embed-novels"])
 
@@ -133,7 +133,7 @@ def test_ベクトル化コマンドは_回数制限以外の失敗なら理由�
     app, db_conn, monkeypatch
 ):
     add_novel(db_conn, "N0001AA")
-    use_embed_errors(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
+    use_fake_embed(monkeypatch, {1: gemini.GeminiApiError("テスト用の変換失敗")})
 
     result = app.test_cli_runner().invoke(args=["embed-novels"])
 

@@ -6,6 +6,7 @@ import ai_search
 import embedding
 import gemini
 from tests.helpers import (
+    EMBEDDED_AT,
     EMBEDDING_DIMENSIONS,
     EMBEDDING_ID,
     FakeEmbedTexts,
@@ -15,11 +16,10 @@ from tests.helpers import (
     fetch_novels_by_ncode,
     insert_embedding,
     novel_id_of,
-    use_embed_errors,
+    use_fake_embed,
 )
 
 API_KEY = "test-api-key"
-# helpers.insert_embedding が入れる更新日時とは違う値にする
 NOW = datetime(2026, 10, 28, 15, 0, 0)
 
 
@@ -74,7 +74,8 @@ def test_変換が必要な作品だけをid順に送り_ベクトルとハッ�
         assert row["model"] == EMBEDDING_ID
         assert row["source_hash"] == ai_search.source_hash(text)
         assert row["updated_at"] == NOW
-    # 変換済みの作品は送らず、保存し直してもいない
+    # 変換済みの作品は送らず、保存し直してもいない（前提の更新日時は NOW と違う）
+    assert EMBEDDED_AT != NOW
     assert saved[novel_id_of(db_conn, "N0002BB")]["updated_at"] != NOW
 
 
@@ -108,7 +109,7 @@ def test_途中で回数制限になったら止め_それまでに保存した�
     monkeypatch.setattr(gemini, "MAX_BATCH_SIZE", 2)
     ncodes = add_novels(db_conn, 5)
     quota_error = gemini.GeminiQuotaError("テスト用の回数制限")
-    fake = use_embed_errors(monkeypatch, {2: quota_error})
+    fake = use_fake_embed(monkeypatch, {2: quota_error})
 
     result = embedding.embed_novels(db_conn, API_KEY, NOW)
 
@@ -124,7 +125,7 @@ def test_回数制限以外の失敗でも止める(db_conn, monkeypatch):
     monkeypatch.setattr(gemini, "MAX_BATCH_SIZE", 2)
     add_novels(db_conn, 3)
     api_error = gemini.GeminiApiError("テスト用の変換失敗")
-    fake = use_embed_errors(monkeypatch, {1: api_error})
+    fake = use_fake_embed(monkeypatch, {1: api_error})
 
     result = embedding.embed_novels(db_conn, API_KEY, NOW)
 
