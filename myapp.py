@@ -163,7 +163,9 @@ def excerpt(text):
 @app.template_filter("percent")
 def percent(score):
     # 類似度（-1〜1）を 100 倍して、四捨五入した整数にする。
-    # round() は .5 を偶数の側に丸める（12.5 → 12）ので使わない
+    # round() は .5 を偶数の側に丸める（12.5 → 12）ので使わない。
+    # ただし score は 2 進数の小数なので、0.285 のように 2 進数で表せない値は
+    # 100 倍してもちょうど .5 にならず（28.4999…）、28 になる。目安の表示なので追わない
     return int(Decimal(score * 100).to_integral_value(rounding=ROUND_HALF_UP))
 
 
@@ -292,14 +294,6 @@ def render_ai_search_page(query, results=None, status=None):
     )
 
 
-def now_jst():
-    """DB に保存する今の時刻（タイムゾーン無しの JST）。"""
-    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
-    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
-    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
-    return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
-
-
 @app.route("/novels/<ncode>/similar")
 def similar_novels(ncode):
     if not NCODE_PATTERN.fullmatch(ncode):
@@ -311,6 +305,14 @@ def similar_novels(ncode):
         abort(404)
     results = embedding.find_similar_novels(get_db(), novel["id"], AI_RESULT_LIMIT)
     return render_template("similar.html", novel=novel, results=results)
+
+
+def now_jst():
+    """DB に保存する今の時刻（タイムゾーン無しの JST）。"""
+    # なろう API の日時（JST）と揃えるため、サーバのタイムゾーン設定に任せず明示する。
+    # カラムはタイムゾーン無しの TIMESTAMP なので、JST の時刻のままタイムゾーン情報だけ
+    # 外す（付けたまま渡すと、DB のタイムゾーン設定で変換されて時刻がずれる）
+    return datetime.now(ZoneInfo("Asia/Tokyo")).replace(tzinfo=None)
 
 
 def run_import():

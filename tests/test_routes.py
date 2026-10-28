@@ -7,6 +7,7 @@ import pytest
 import requests
 
 import db
+import embedding
 import gemini
 import myapp
 from tests.helpers import add_novel, add_novel_with_vector, use_fake_embed_text
@@ -349,6 +350,18 @@ def test_AI検索_入力が空なら_ベクトルが無くても準備ができ�
     page = get_html(client, query)
 
     assert NOT_READY_MESSAGE not in page
+
+
+def test_AI検索_結果が0件なら_近い作品が無いと出す(client, db_conn, monkeypatch):
+    # ベクトルを読んだ後に、取り込みで候補の作品が全部消えた場合
+    monkeypatch.setattr(embedding, "search_by_text", lambda *args: [])
+
+    page = get_html(client, ai_search_query("切ない恋の話"))
+
+    assert "近い作品がありません" in page
+    assert NOT_READY_MESSAGE not in page
+    # 入力が空のとき（結果が None）には出さない
+    assert "近い作品がありません" not in get_html(client, "mode=ai")
 
 
 def test_AI検索_ちょうど200文字なら検索する(client, db_conn, monkeypatch):
